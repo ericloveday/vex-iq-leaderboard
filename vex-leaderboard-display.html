@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VEX IQ Leaderboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+  :root {
+    --red: #ce1f07;
+    --black: #111111;
+    --white: #ffffff;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--black);
+    font-family: 'Montserrat', sans-serif;
+    overflow: hidden;
+  }
+  .wrap {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    width: 100vw;
+  }
+  .titlebar {
+    background: var(--red);
+    color: var(--white);
+    padding: 22px 40px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .titlebar h1 {
+    margin: 0;
+    font-size: clamp(24px, 3.2vw, 44px);
+    font-weight: 900;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .titlebar .subtitle {
+    font-size: clamp(14px, 1.4vw, 20px);
+    font-weight: 600;
+    opacity: 0.92;
+  }
+  .board {
+    flex: 1;
+    padding: 30px 40px;
+    overflow: hidden;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    color: var(--white);
+  }
+  th {
+    text-align: left;
+    font-size: clamp(13px, 1.1vw, 18px);
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: #999;
+    padding: 10px 14px;
+    border-bottom: 3px solid var(--red);
+  }
+  td {
+    font-size: clamp(16px, 2vw, 28px);
+    font-weight: 600;
+    padding: 14px 14px;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  tr:nth-child(1) td { font-size: clamp(20px, 2.6vw, 36px); font-weight: 800; }
+  tr:nth-child(1) td:first-child, tr:nth-child(1) td:nth-child(2) { color: var(--red); }
+  .rank-cell { width: 60px; opacity: 0.85; }
+  .num-cell { text-align: center; width: 90px; }
+  .empty-state {
+    color: #888;
+    text-align: center;
+    font-size: clamp(18px, 2vw, 28px);
+    font-weight: 600;
+    padding-top: 60px;
+  }
+  .footer-note {
+    text-align: center;
+    color: #555;
+    font-size: 13px;
+    padding: 10px;
+    font-weight: 500;
+  }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="titlebar">
+    <h1>VEX IQ Leaderboard</h1>
+    <div class="subtitle" id="scopeLabel">Season Standings</div>
+  </div>
+  <div class="board">
+    <table id="board" style="display:none;">
+      <thead>
+        <tr>
+          <th class="rank-cell">#</th>
+          <th>Team</th>
+          <th class="num-cell">W</th>
+          <th class="num-cell">L</th>
+          <th class="num-cell">T</th>
+          <th class="num-cell">Pts</th>
+          <th class="num-cell">Diff</th>
+        </tr>
+      </thead>
+      <tbody id="boardBody"></tbody>
+    </table>
+    <div class="empty-state" id="emptyState">No matches logged yet — check back after the next event!</div>
+  </div>
+  <div class="footer-note">Updated live</div>
+</div>
+
+<script>
+/* ============================================================
+   FIREBASE CONFIG — same config as the admin dashboard.
+   This widget only reads data (no sign-in), so make sure the
+   vexLeaderboard node has public read rules, e.g.:
+     "vexLeaderboard": { ".read": true, ".write": "auth != null" }
+   ============================================================ */
+const firebaseConfig = {
+  apiKey: "AIzaSyBsja7ruNaLkTDTxyga9qd9TZG2Zz5AjHA",
+  authDomain: "bathroom-check-out.firebaseapp.com",
+  databaseURL: "https://bathroom-check-out-default-rtdb.firebaseio.com",
+  projectId: "bathroom-check-out",
+  storageBucket: "bathroom-check-out.firebasestorage.app",
+  messagingSenderId: "385219454253",
+  appId: "1:385219454253:web:970acbfe28672f73c45fa4"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+const ROOT = "vexLeaderboard";
+
+let teams = {};
+let matches = {};
+
+db.ref(`${ROOT}/teams`).on('value', snap => { teams = snap.val() || {}; render(); });
+db.ref(`${ROOT}/matches`).on('value', snap => { matches = snap.val() || {}; render(); });
+
+function computeStandings() {
+  const stats = {};
+  Object.keys(teams).forEach(id => {
+    stats[id] = { id, name: teams[id].name, w: 0, l: 0, t: 0, pf: 0, pa: 0, pts: 0 };
+  });
+
+  Object.values(matches).forEach(m => {
+    if (!stats[m.teamAId] || !stats[m.teamBId]) return;
+    const a = stats[m.teamAId], b = stats[m.teamBId];
+    a.pf += m.scoreA; a.pa += m.scoreB;
+    b.pf += m.scoreB; b.pa += m.scoreA;
+    if (m.scoreA > m.scoreB) { a.w++; a.pts += 2; b.l++; }
+    else if (m.scoreA < m.scoreB) { b.w++; b.pts += 2; a.l++; }
+    else { a.t++; b.t++; a.pts += 1; b.pts += 1; }
+  });
+
+  return Object.values(stats).sort((x, y) => {
+    if (y.pts !== x.pts) return y.pts - x.pts;
+    const diffX = x.pf - x.pa, diffY = y.pf - y.pa;
+    if (diffY !== diffX) return diffY - diffX;
+    return y.pf - x.pf;
+  });
+}
+
+function render() {
+  const standings = computeStandings();
+  const hasMatches = Object.keys(matches).length > 0 && Object.keys(teams).length > 0;
+
+  document.getElementById('board').style.display = hasMatches ? 'table' : 'none';
+  document.getElementById('emptyState').style.display = hasMatches ? 'none' : 'block';
+
+  if (!hasMatches) return;
+
+  document.getElementById('boardBody').innerHTML = standings.map((s, i) => `
+    <tr>
+      <td class="rank-cell">${i + 1}</td>
+      <td>${escapeHtml(s.name)}</td>
+      <td class="num-cell">${s.w}</td>
+      <td class="num-cell">${s.l}</td>
+      <td class="num-cell">${s.t}</td>
+      <td class="num-cell">${s.pts}</td>
+      <td class="num-cell">${s.pf - s.pa > 0 ? '+' : ''}${s.pf - s.pa}</td>
+    </tr>
+  `).join('');
+}
+
+function escapeHtml(str) {
+  if (str === undefined || str === null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+</script>
+</body>
+</html>
