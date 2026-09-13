@@ -32,6 +32,8 @@
     align-items: center;
     justify-content: space-between;
     border-bottom: 6px solid var(--red);
+    flex-wrap: wrap;
+    gap: 10px;
   }
   header h1 {
     margin: 0;
@@ -40,6 +42,16 @@
     letter-spacing: 0.5px;
   }
   header h1 span { color: var(--red); }
+  header .header-actions { display: flex; gap: 10px; align-items: center; }
+  header a.nav-link {
+    color: var(--white);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 13px;
+    border: 2px solid var(--white);
+    padding: 6px 14px;
+    border-radius: 6px;
+  }
   #signOutBtn {
     background: var(--red);
     color: var(--white);
@@ -183,16 +195,15 @@
   tr:hover td { background: #fafafa; }
   .rank-1 { color: var(--red); font-weight: 800; }
   .empty-msg { color: #888; font-style: italic; padding: 12px 0; }
-  .badge {
+  .type-badge {
     display: inline-block;
     padding: 2px 8px;
     border-radius: 10px;
     font-size: 11px;
     font-weight: 700;
   }
-  .badge.win { background: #e5f6e8; color: #1a7a2e; }
-  .badge.loss { background: #fbe6e4; color: var(--red); }
-  .badge.tie { background: #eee; color: #555; }
+  .type-badge.headToHead { background: #eef2ff; color: #3949ab; }
+  .type-badge.skills { background: #fff3e0; color: #e65100; }
 </style>
 </head>
 <body>
@@ -207,13 +218,17 @@
 
 <header id="appHeader" style="display:none;">
   <h1>VEX IQ <span>Leaderboard</span> — Admin</h1>
-  <button id="signOutBtn" onclick="doSignOut()">Sign Out</button>
+  <div class="header-actions">
+    <a class="nav-link" href="vex-leaderboard-live.html">Run Live Event →</a>
+    <button id="signOutBtn" onclick="doSignOut()">Sign Out</button>
+  </div>
 </header>
 
 <main id="mainApp">
   <div class="tabs">
     <button class="tab-btn active" data-tab="standings" onclick="switchTab('standings')">Standings</button>
     <button class="tab-btn" data-tab="matches" onclick="switchTab('matches')">Log Match</button>
+    <button class="tab-btn" data-tab="skills" onclick="switchTab('skills')">Skills Runs</button>
     <button class="tab-btn" data-tab="teams" onclick="switchTab('teams')">Teams</button>
     <button class="tab-btn" data-tab="events" onclick="switchTab('events')">Events</button>
   </div>
@@ -229,18 +244,18 @@
       </div>
       <table id="standingsTable">
         <thead>
-          <tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>T</th><th>Pts</th><th>PF</th><th>PA</th><th>Diff</th></tr>
+          <tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>T</th><th>Match Pts</th><th>Skills Pts</th><th>Total Pts</th><th>PF</th><th>PA</th><th>Diff</th></tr>
         </thead>
         <tbody id="standingsBody"></tbody>
       </table>
-      <div id="standingsEmpty" class="empty-msg" style="display:none;">No matches logged yet.</div>
+      <div id="standingsEmpty" class="empty-msg" style="display:none;">No results logged yet.</div>
     </div>
   </div>
 
   <!-- MATCHES PANEL -->
   <div class="panel" id="panel-matches">
     <div class="card">
-      <h3>Log a Match Result</h3>
+      <h3>Log a Head-to-Head Match Result</h3>
       <div class="form-row">
         <select id="matchEventSelect"></select>
       </div>
@@ -262,6 +277,31 @@
         <tbody id="matchesBody"></tbody>
       </table>
       <div id="matchesEmpty" class="empty-msg" style="display:none;">No matches logged yet.</div>
+    </div>
+  </div>
+
+  <!-- SKILLS RUNS PANEL -->
+  <div class="panel" id="panel-skills">
+    <div class="card">
+      <h3>Log a Skills Run</h3>
+      <div class="form-row">
+        <select id="skillsEventSelect"></select>
+        <select id="skillsTeamSelect"></select>
+      </div>
+      <div class="form-row">
+        <input type="number" id="skillsScore1" placeholder="Score 1" style="max-width:100px;">
+        <input type="number" id="skillsScore2" placeholder="Score 2" style="max-width:100px;">
+        <button class="action-btn" onclick="addSkillsRun()">Save Run</button>
+      </div>
+      <div style="font-size:12px; color:#888;">Re-entering a run for the same team + event overwrites their previous score for that event.</div>
+    </div>
+    <div class="card">
+      <h3>Recent Skills Runs</h3>
+      <table>
+        <thead><tr><th>Event</th><th>Team</th><th>Score 1</th><th>Score 2</th><th>Total</th><th></th></tr></thead>
+        <tbody id="skillsBody"></tbody>
+      </table>
+      <div id="skillsEmpty" class="empty-msg" style="display:none;">No skills runs logged yet.</div>
     </div>
   </div>
 
@@ -291,13 +331,17 @@
       <div class="form-row">
         <input type="text" id="newEventName" placeholder="Event name">
         <input type="date" id="newEventDate">
+        <select id="newEventType">
+          <option value="headToHead">Head-to-Head</option>
+          <option value="skills">Skills Run</option>
+        </select>
         <button class="action-btn" onclick="addEvent()">Add Event</button>
       </div>
     </div>
     <div class="card">
       <h3>Events</h3>
       <table>
-        <thead><tr><th>Event</th><th>Date</th><th></th></tr></thead>
+        <thead><tr><th>Event</th><th>Date</th><th>Type</th><th></th></tr></thead>
         <tbody id="eventsBody"></tbody>
       </table>
       <div id="eventsEmpty" class="empty-msg" style="display:none;">No events yet — add one above.</div>
@@ -306,10 +350,6 @@
 </main>
 
 <script>
-/* ============================================================
-   FIREBASE CONFIG — paste your bathroom-check-out project's
-   config here (same one used in your other tools).
-   ============================================================ */
 const firebaseConfig = {
   apiKey: "AIzaSyBsja7ruNaLkTDTxyga9qd9TZG2Zz5AjHA",
   authDomain: "bathroom-check-out.firebaseapp.com",
@@ -324,11 +364,12 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.database();
 
-const ROOT = "vexLeaderboard"; // top-level node, isolated from your other tools
+const ROOT = "vexLeaderboard";
 
 let teams = {};
 let events = {};
 let matches = {};
+let skillsRuns = {};
 
 // ---------- AUTH ----------
 function doSignIn() {
@@ -379,6 +420,15 @@ function attachListeners() {
     renderMatches();
     renderStandings();
   });
+  db.ref(`${ROOT}/skillsRuns`).on('value', snap => {
+    skillsRuns = snap.val() || {};
+    renderSkillsRuns();
+    renderStandings();
+  });
+}
+
+function eventType(id) {
+  return (events[id] && events[id].type) || 'headToHead';
 }
 
 // ---------- TEAMS ----------
@@ -389,7 +439,7 @@ function addTeam() {
   document.getElementById('newTeamName').value = '';
 }
 function deleteTeam(id) {
-  if (!confirm('Delete this team? Existing match history will keep the team name but it will no longer appear in dropdowns.')) return;
+  if (!confirm('Delete this team? Existing history will keep the team name but it will no longer appear in dropdowns.')) return;
   db.ref(`${ROOT}/teams/${id}`).remove();
 }
 function renderTeams() {
@@ -408,19 +458,21 @@ function renderTeamSelects() {
     .join('');
   document.getElementById('matchTeamA').innerHTML = '<option value="">Team A</option>' + opts;
   document.getElementById('matchTeamB').innerHTML = '<option value="">Team B</option>' + opts;
+  document.getElementById('skillsTeamSelect').innerHTML = '<option value="">Select team…</option>' + opts;
 }
 
 // ---------- EVENTS ----------
 function addEvent() {
   const name = document.getElementById('newEventName').value.trim();
   const date = document.getElementById('newEventDate').value;
+  const type = document.getElementById('newEventType').value;
   if (!name) return;
-  db.ref(`${ROOT}/events`).push({ name, date: date || '', createdAt: Date.now() });
+  db.ref(`${ROOT}/events`).push({ name, date: date || '', type, createdAt: Date.now() });
   document.getElementById('newEventName').value = '';
   document.getElementById('newEventDate').value = '';
 }
 function deleteEvent(id) {
-  if (!confirm('Delete this event? Matches logged under it will remain but will show as an unknown event.')) return;
+  if (!confirm('Delete this event? Results logged under it will remain but will show as an unknown event.')) return;
   db.ref(`${ROOT}/events/${id}`).remove();
 }
 function renderEvents() {
@@ -429,24 +481,31 @@ function renderEvents() {
   document.getElementById('eventsEmpty').style.display = ids.length ? 'none' : 'block';
   body.innerHTML = ids
     .sort((a, b) => (events[b].date || '').localeCompare(events[a].date || ''))
-    .map(id => `<tr><td>${escapeHtml(events[id].name)}</td><td>${escapeHtml(events[id].date || '—')}</td><td><button class="small-btn" onclick="deleteEvent('${id}')">Remove</button></td></tr>`)
+    .map(id => `<tr>
+      <td>${escapeHtml(events[id].name)}</td>
+      <td>${escapeHtml(events[id].date || '—')}</td>
+      <td><span class="type-badge ${eventType(id)}">${eventType(id) === 'skills' ? 'Skills Run' : 'Head-to-Head'}</span></td>
+      <td><button class="small-btn" onclick="deleteEvent('${id}')">Remove</button></td>
+    </tr>`)
     .join('');
 }
 function renderEventSelects() {
-  const opts = Object.keys(events)
-    .sort((a, b) => (events[b].date || '').localeCompare(events[a].date || ''))
-    .map(id => `<option value="${id}">${escapeHtml(events[id].name)}</option>`)
-    .join('');
-  document.getElementById('matchEventSelect').innerHTML = '<option value="">Select event…</option>' + opts;
+  const headToHeadIds = Object.keys(events).filter(id => eventType(id) === 'headToHead');
+  const skillsIds = Object.keys(events).filter(id => eventType(id) === 'skills');
+  const sortByDate = (a, b) => (events[b].date || '').localeCompare(events[a].date || '');
 
-  const filterOpts = Object.keys(events)
-    .sort((a, b) => (events[b].date || '').localeCompare(events[a].date || ''))
-    .map(id => `<option value="${id}">${escapeHtml(events[id].name)}</option>`)
-    .join('');
-  document.getElementById('standingsEventFilter').innerHTML = '<option value="season">Season (All Events)</option>' + filterOpts;
+  document.getElementById('matchEventSelect').innerHTML = '<option value="">Select event…</option>' +
+    headToHeadIds.sort(sortByDate).map(id => `<option value="${id}">${escapeHtml(events[id].name)}</option>`).join('');
+
+  document.getElementById('skillsEventSelect').innerHTML = '<option value="">Select event…</option>' +
+    skillsIds.sort(sortByDate).map(id => `<option value="${id}">${escapeHtml(events[id].name)}</option>`).join('');
+
+  const allSorted = Object.keys(events).sort(sortByDate);
+  document.getElementById('standingsEventFilter').innerHTML = '<option value="season">Season (All Events)</option>' +
+    allSorted.map(id => `<option value="${id}">${escapeHtml(events[id].name)} (${eventType(id) === 'skills' ? 'Skills' : 'H2H'})</option>`).join('');
 }
 
-// ---------- MATCHES ----------
+// ---------- MATCHES (head-to-head) ----------
 function addMatch() {
   const eventId = document.getElementById('matchEventSelect').value;
   const teamAId = document.getElementById('matchTeamA').value;
@@ -486,11 +545,51 @@ function renderMatches() {
   }).join('');
 }
 
+// ---------- SKILLS RUNS ----------
+function addSkillsRun() {
+  const eventId = document.getElementById('skillsEventSelect').value;
+  const teamId = document.getElementById('skillsTeamSelect').value;
+  const score1 = parseInt(document.getElementById('skillsScore1').value, 10) || 0;
+  const score2 = parseInt(document.getElementById('skillsScore2').value, 10) || 0;
+
+  if (!eventId) return alert('Select an event.');
+  if (!teamId) return alert('Select a team.');
+
+  const total = score1 + score2;
+  const key = `${eventId}__${teamId}`;
+  db.ref(`${ROOT}/skillsRuns/${key}`).set({ eventId, teamId, score1, score2, total, updatedAt: Date.now() });
+
+  document.getElementById('skillsScore1').value = '';
+  document.getElementById('skillsScore2').value = '';
+}
+function deleteSkillsRun(key) {
+  if (!confirm('Delete this skills run?')) return;
+  db.ref(`${ROOT}/skillsRuns/${key}`).remove();
+}
+function renderSkillsRuns() {
+  const body = document.getElementById('skillsBody');
+  const keys = Object.keys(skillsRuns).sort((a, b) => (skillsRuns[b].updatedAt || 0) - (skillsRuns[a].updatedAt || 0));
+  document.getElementById('skillsEmpty').style.display = keys.length ? 'none' : 'block';
+  body.innerHTML = keys.map(key => {
+    const r = skillsRuns[key];
+    const evName = events[r.eventId] ? events[r.eventId].name : '(deleted event)';
+    const tName = teams[r.teamId] ? teams[r.teamId].name : '(deleted team)';
+    return `<tr>
+      <td>${escapeHtml(evName)}</td>
+      <td>${escapeHtml(tName)}</td>
+      <td>${r.score1}</td>
+      <td>${r.score2}</td>
+      <td><strong>${r.total}</strong></td>
+      <td><button class="small-btn" onclick="deleteSkillsRun('${key}')">Remove</button></td>
+    </tr>`;
+  }).join('');
+}
+
 // ---------- STANDINGS ----------
 function computeStandings(filterEventId) {
   const stats = {};
   Object.keys(teams).forEach(id => {
-    stats[id] = { id, name: teams[id].name, w: 0, l: 0, t: 0, pf: 0, pa: 0, pts: 0 };
+    stats[id] = { id, name: teams[id].name, w: 0, l: 0, t: 0, pf: 0, pa: 0, matchPts: 0, skillsPts: 0 };
   });
 
   Object.values(matches).forEach(m => {
@@ -501,32 +600,52 @@ function computeStandings(filterEventId) {
     a.pf += m.scoreA; a.pa += m.scoreB;
     b.pf += m.scoreB; b.pa += m.scoreA;
 
-    if (m.scoreA > m.scoreB) { a.w++; a.pts += 2; b.l++; }
-    else if (m.scoreA < m.scoreB) { b.w++; b.pts += 2; a.l++; }
-    else { a.t++; b.t++; a.pts += 1; b.pts += 1; }
+    if (m.scoreA > m.scoreB) { a.w++; a.matchPts += 2; b.l++; }
+    else if (m.scoreA < m.scoreB) { b.w++; b.matchPts += 2; a.l++; }
+    else { a.t++; b.t++; a.matchPts += 1; b.matchPts += 1; }
   });
 
-  return Object.values(stats).sort((x, y) => {
-    if (y.pts !== x.pts) return y.pts - x.pts;
-    const diffX = x.pf - x.pa, diffY = y.pf - y.pa;
-    if (diffY !== diffX) return diffY - diffX;
-    return y.pf - x.pf;
+  const skillsByEvent = {};
+  Object.values(skillsRuns).forEach(r => {
+    if (filterEventId !== 'season' && r.eventId !== filterEventId) return;
+    if (!stats[r.teamId]) return;
+    if (!skillsByEvent[r.eventId]) skillsByEvent[r.eventId] = [];
+    skillsByEvent[r.eventId].push(r);
   });
+  Object.values(skillsByEvent).forEach(runsInEvent => {
+    const ranked = [...runsInEvent].sort((a, b) => b.total - a.total);
+    let place = 0, prevScore = null;
+    ranked.forEach((r, idx) => {
+      if (r.total !== prevScore) { place = idx + 1; prevScore = r.total; }
+      const pts = place === 1 ? 2 : place === 2 ? 1 : 0;
+      stats[r.teamId].skillsPts += pts;
+    });
+  });
+
+  return Object.values(stats)
+    .map(s => ({ ...s, totalPts: s.matchPts + s.skillsPts }))
+    .sort((x, y) => {
+      if (y.totalPts !== x.totalPts) return y.totalPts - x.totalPts;
+      const diffX = x.pf - x.pa, diffY = y.pf - y.pa;
+      if (diffY !== diffX) return diffY - diffX;
+      return y.pf - x.pf;
+    });
 }
 
 function renderStandings() {
   const filter = document.getElementById('standingsEventFilter').value || 'season';
   const standings = computeStandings(filter);
   const body = document.getElementById('standingsBody');
-  const hasMatches = Object.keys(matches).length > 0;
-  document.getElementById('standingsEmpty').style.display = hasMatches ? 'none' : 'block';
+  const hasResults = Object.keys(matches).length > 0 || Object.keys(skillsRuns).length > 0;
+  document.getElementById('standingsEmpty').style.display = hasResults ? 'none' : 'block';
 
   body.innerHTML = standings.map((s, i) => `
     <tr>
       <td class="${i === 0 ? 'rank-1' : ''}">${i + 1}</td>
       <td class="${i === 0 ? 'rank-1' : ''}">${escapeHtml(s.name)}</td>
       <td>${s.w}</td><td>${s.l}</td><td>${s.t}</td>
-      <td>${s.pts}</td><td>${s.pf}</td><td>${s.pa}</td>
+      <td>${s.matchPts}</td><td>${s.skillsPts}</td><td><strong>${s.totalPts}</strong></td>
+      <td>${s.pf}</td><td>${s.pa}</td>
       <td>${s.pf - s.pa > 0 ? '+' : ''}${s.pf - s.pa}</td>
     </tr>
   `).join('');
