@@ -232,6 +232,7 @@
     <button class="tab-btn" data-tab="teams" onclick="switchTab('teams')">Teams</button>
     <button class="tab-btn" data-tab="events" onclick="switchTab('events')">Events</button>
     <button class="tab-btn" data-tab="points" onclick="switchTab('points')">Points Settings</button>
+    <button class="tab-btn" data-tab="data" onclick="switchTab('data')">Data Management</button>
   </div>
 
   <!-- STANDINGS PANEL -->
@@ -268,7 +269,8 @@
         <select id="matchTeamB"></select>
       </div>
       <div class="form-row">
-        <button class="action-btn" onclick="addMatch()">Save Match</button>
+        <button class="action-btn" id="matchSaveBtn" onclick="addMatch()">Save Match</button>
+        <button class="small-btn" id="matchCancelBtn" style="display:none;" onclick="cancelMatchEdit()">Cancel Edit</button>
       </div>
     </div>
     <div class="card">
@@ -292,7 +294,7 @@
       <div class="form-row">
         <input type="number" id="skillsScore1" placeholder="Attempt 1" style="max-width:100px;">
         <input type="number" id="skillsScore2" placeholder="Attempt 2" style="max-width:100px;">
-        <button class="action-btn" onclick="addSkillsRun()">Save Run</button>
+        <button class="action-btn" id="skillsSaveBtn" onclick="addSkillsRun()">Save Run</button>
       </div>
       <div style="font-size:12px; color:#888;">Re-entering a run for the same team + event overwrites their previous attempts for that event. The team's BEST attempt is used for ranking — fastest time for Time events, highest score for Points events.</div>
     </div>
@@ -366,6 +368,27 @@
         <button class="action-btn secondary" onclick="removePlacementRow()">Remove Last Place</button>
         <button class="action-btn" onclick="savePlacementPoints()">Save Points Table</button>
       </div>
+    </div>
+  </div>
+
+  <!-- DATA MANAGEMENT PANEL -->
+  <div class="panel" id="panel-data">
+    <div class="card" style="border: 2px solid var(--red);">
+      <h3 style="color:var(--red);">Danger Zone — these actions cannot be undone</h3>
+      <div class="form-row">
+        <button class="action-btn secondary" onclick="clearAllData('matches', 'all match results')">Clear All Match Results</button>
+      </div>
+      <div class="form-row">
+        <button class="action-btn secondary" onclick="clearAllData('skillsRuns', 'all skills runs')">Clear All Skills Runs</button>
+      </div>
+      <div class="form-row">
+        <button class="action-btn secondary" onclick="clearAllData(['schedules','allianceSchedules'], 'all generated schedules (1v1 and alliance)')">Clear All Schedules</button>
+      </div>
+      <hr style="margin:20px 0; border:none; border-top:1px solid var(--gray-border);">
+      <div class="form-row">
+        <button class="action-btn" style="background:var(--black);" onclick="clearAllData('everything', 'EVERYTHING — teams, events, matches, skills runs, and schedules')">Reset Everything (Full Wipe)</button>
+      </div>
+      <div style="font-size:12px; color:#888; margin-top:6px;">Use the first three buttons to clear out test results while keeping your teams and events set up. Only use "Reset Everything" if you want to start completely from scratch.</div>
     </div>
   </div>
 </main>
@@ -549,6 +572,8 @@ function renderEventSelects() {
 }
 
 // ---------- MATCHES (head-to-head) ----------
+let editingMatchId = null;
+
 function addMatch() {
   const eventId = document.getElementById('matchEventSelect').value;
   const teamAId = document.getElementById('matchTeamA').value;
@@ -561,10 +586,44 @@ function addMatch() {
   if (teamAId === teamBId) return alert('Team A and Team B must be different.');
   if (isNaN(scoreA) || isNaN(scoreB)) return alert('Enter both scores.');
 
-  db.ref(`${ROOT}/matches`).push({ eventId, teamAId, teamBId, scoreA, scoreB, createdAt: Date.now() });
-
+  if (editingMatchId) {
+    db.ref(`${ROOT}/matches/${editingMatchId}`).update({ eventId, teamAId, teamBId, scoreA, scoreB });
+    cancelMatchEdit();
+  } else {
+    db.ref(`${ROOT}/matches`).push({ eventId, teamAId, teamBId, scoreA, scoreB, createdAt: Date.now() });
+    document.getElementById('matchScoreA').value = '';
+    document.getElementById('matchScoreB').value = '';
+  }
+}
+function editMatch(id) {
+  const m = matches[id];
+  if (m.teamAIds && m.teamBIds) {
+    // Alliance-format match — no 2v2 form here, so do a quick score-only edit.
+    const newScoreA = prompt('New Green Alliance score:', m.scoreA);
+    if (newScoreA === null) return;
+    const newScoreB = prompt('New Blue Alliance score:', m.scoreB);
+    if (newScoreB === null) return;
+    const a = parseInt(newScoreA, 10), b = parseInt(newScoreB, 10);
+    if (isNaN(a) || isNaN(b)) return alert('Scores must be numbers.');
+    db.ref(`${ROOT}/matches/${id}`).update({ scoreA: a, scoreB: b });
+    return;
+  }
+  editingMatchId = id;
+  document.getElementById('matchEventSelect').value = m.eventId;
+  document.getElementById('matchTeamA').value = m.teamAId;
+  document.getElementById('matchTeamB').value = m.teamBId;
+  document.getElementById('matchScoreA').value = m.scoreA;
+  document.getElementById('matchScoreB').value = m.scoreB;
+  document.getElementById('matchSaveBtn').textContent = 'Save Edit';
+  document.getElementById('matchCancelBtn').style.display = 'inline-block';
+  switchTab('matches');
+}
+function cancelMatchEdit() {
+  editingMatchId = null;
   document.getElementById('matchScoreA').value = '';
   document.getElementById('matchScoreB').value = '';
+  document.getElementById('matchSaveBtn').textContent = 'Save Match';
+  document.getElementById('matchCancelBtn').style.display = 'none';
 }
 function deleteMatch(id) {
   if (!confirm('Delete this match result?')) return;
@@ -591,7 +650,7 @@ function renderMatches() {
       <td>${escapeHtml(evName)}</td>
       <td>${matchup}</td>
       <td>${result}</td>
-      <td><button class="small-btn" onclick="deleteMatch('${id}')">Remove</button></td>
+      <td><button class="small-btn" onclick="editMatch('${id}')">Edit</button> <button class="small-btn" onclick="deleteMatch('${id}')">Remove</button></td>
     </tr>`;
   }).join('');
 }
@@ -602,6 +661,8 @@ function bestOfAttempts(score1, score2, mode) {
   if (!attempts.length) return null;
   return mode === 'time' ? Math.min(...attempts) : Math.max(...attempts);
 }
+
+let editingSkillsKey = null;
 
 function addSkillsRun() {
   const eventId = document.getElementById('skillsEventSelect').value;
@@ -621,6 +682,18 @@ function addSkillsRun() {
 
   document.getElementById('skillsScore1').value = '';
   document.getElementById('skillsScore2').value = '';
+  editingSkillsKey = null;
+  document.getElementById('skillsSaveBtn').textContent = 'Save Run';
+}
+function editSkillsRun(key) {
+  const r = skillsRuns[key];
+  editingSkillsKey = key;
+  document.getElementById('skillsEventSelect').value = r.eventId;
+  document.getElementById('skillsTeamSelect').value = r.teamId;
+  document.getElementById('skillsScore1').value = (r.score1 !== null && r.score1 !== undefined) ? r.score1 : '';
+  document.getElementById('skillsScore2').value = (r.score2 !== null && r.score2 !== undefined) ? r.score2 : '';
+  document.getElementById('skillsSaveBtn').textContent = 'Save Edit (overwrites this run)';
+  switchTab('skills');
 }
 function deleteSkillsRun(key) {
   if (!confirm('Delete this skills run?')) return;
@@ -640,7 +713,7 @@ function renderSkillsRuns() {
       <td>${r.score1 !== null && r.score1 !== undefined ? r.score1 : '—'}</td>
       <td>${r.score2 !== null && r.score2 !== undefined ? r.score2 : '—'}</td>
       <td><strong>${r.best !== null && r.best !== undefined ? r.best : '—'}</strong></td>
-      <td><button class="small-btn" onclick="deleteSkillsRun('${key}')">Remove</button></td>
+      <td><button class="small-btn" onclick="editSkillsRun('${key}')">Edit</button> <button class="small-btn" onclick="deleteSkillsRun('${key}')">Remove</button></td>
     </tr>`;
   }).join('');
 }
@@ -785,6 +858,25 @@ function savePlacementPoints() {
   const values = Array.from(document.querySelectorAll('.placement-points-input')).map(i => parseInt(i.value, 10) || 0);
   db.ref(`${ROOT}/settings/skillsPlacementPoints`).set(values);
   alert('Points table saved.');
+}
+
+// ---------- DATA MANAGEMENT ----------
+function clearAllData(target, label) {
+  const confirmMsg = `This will permanently delete ${label}. This cannot be undone. Type "DELETE" to confirm.`;
+  const typed = prompt(confirmMsg);
+  if (typed !== 'DELETE') {
+    if (typed !== null) alert('Not deleted — you must type DELETE exactly to confirm.');
+    return;
+  }
+
+  if (target === 'everything') {
+    db.ref(ROOT).remove();
+  } else if (Array.isArray(target)) {
+    target.forEach(t => db.ref(`${ROOT}/${t}`).remove());
+  } else {
+    db.ref(`${ROOT}/${target}`).remove();
+  }
+  alert('Cleared.');
 }
 
 function escapeHtml(str) {
