@@ -539,6 +539,15 @@ function renderAllianceScheduleTeamCheckboxes() {
 
 function pairKey(a, b) { return [a, b].sort().join('|'); }
 
+function shuffleArray(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
 function combinationsOf4(arr) {
   const result = [];
   const n = arr.length;
@@ -553,7 +562,10 @@ function combinationsOf4(arr) {
 // Builds a sequence of 2v2 alliance matches from a team list, aiming for each team
 // to play at least `matchesPerTeam` times while rotating partners and opponents as
 // much as the numbers allow. Best-effort heuristic, not a perfect balanced design.
-function buildAllianceSchedule(teamIds, matchesPerTeam) {
+// Randomized: ties are broken randomly, so repeated calls with the same inputs
+// produce different (but equally fair) schedules.
+function buildAllianceSchedule(inputTeamIds, matchesPerTeam) {
+  const teamIds = shuffleArray(inputTeamIds);
   const remaining = {};
   const totalPlayed = {};
   teamIds.forEach(id => { remaining[id] = matchesPerTeam; totalPlayed[id] = 0; });
@@ -572,8 +584,7 @@ function buildAllianceSchedule(teamIds, matchesPerTeam) {
       // Not enough teams still "needing" a match to fill a foursome — borrow
       // whichever already-satisfied teams have played the fewest total matches,
       // so the bonus appearance rotates fairly rather than always hitting the same teams.
-      const fillers = teamIds
-        .filter(id => !candidates.includes(id))
+      const fillers = shuffleArray(teamIds.filter(id => !candidates.includes(id)))
         .sort((a, b) => totalPlayed[a] - totalPlayed[b]);
       for (const f of fillers) {
         if (candidates.length >= 4) break;
@@ -585,10 +596,11 @@ function buildAllianceSchedule(teamIds, matchesPerTeam) {
     let pool = candidates.filter(id => !lastRoundTeams.has(id));
     if (pool.length < 4) pool = candidates; // allow back-to-back only if unavoidable
 
-    pool.sort((a, b) => remaining[b] - remaining[a]);
+    pool = shuffleArray(pool).sort((a, b) => remaining[b] - remaining[a]);
     const searchPool = pool.slice(0, Math.min(pool.length, 8));
 
-    let best = null, bestScore = Infinity;
+    let bestScore = Infinity;
+    let tiedBest = [];
     combinationsOf4(searchPool).forEach(four => {
       const [t1, t2, t3, t4] = four;
       const splits = [
@@ -600,11 +612,13 @@ function buildAllianceSchedule(teamIds, matchesPerTeam) {
         const partnerScore = (partnerCount[pairKey(g[0], g[1])] || 0) + (partnerCount[pairKey(b[0], b[1])] || 0);
         const opponentScore = g.reduce((s, gid) => s + b.reduce((s2, bid) => s2 + (opponentCount[pairKey(gid, bid)] || 0), 0), 0);
         const score = partnerScore * 3 + opponentScore;
-        if (score < bestScore) { bestScore = score; best = { four, split: [g, b] }; }
+        if (score < bestScore) { bestScore = score; tiedBest = [{ four, split: [g, b] }]; }
+        else if (score === bestScore) { tiedBest.push({ four, split: [g, b] }); }
       });
     });
 
-    if (!best) break;
+    if (!tiedBest.length) break;
+    const best = tiedBest[Math.floor(Math.random() * tiedBest.length)];
     const [green, blue] = best.split;
 
     rounds.push({ teamAIds: green, teamBIds: blue, done: false });
