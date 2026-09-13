@@ -316,7 +316,7 @@
   <div class="card" id="skillsPanel" style="display:none;">
     <h3>Live Skills Scoreboard — enter scores as teams run, it auto-ranks</h3>
     <table>
-      <thead><tr><th>Rank</th><th>Team</th><th>Score 1</th><th>Score 2</th><th>Total</th></tr></thead>
+      <thead><tr><th>Rank</th><th>Team</th><th>Attempt 1</th><th>Attempt 2</th><th>Best</th><th>Points</th></tr></thead>
       <tbody id="skillsLiveBody"></tbody>
     </table>
     <div id="skillsLiveEmpty" class="empty-msg" style="display:none;">No teams yet.</div>
@@ -346,6 +346,8 @@ let matches = {};
 let skillsRuns = {};
 let schedules = {};
 let allianceSchedules = {};
+let settings = {};
+const DEFAULT_PLACEMENT_POINTS = [6, 4, 3, 2, 1];
 
 // ---------- AUTH ----------
 function doSignIn() {
@@ -377,10 +379,19 @@ function attachListeners() {
   db.ref(`${ROOT}/skillsRuns`).on('value', snap => { skillsRuns = snap.val() || {}; renderCurrentEventView(); });
   db.ref(`${ROOT}/schedules`).on('value', snap => { schedules = snap.val() || {}; renderCurrentEventView(); });
   db.ref(`${ROOT}/allianceSchedules`).on('value', snap => { allianceSchedules = snap.val() || {}; renderCurrentEventView(); });
+  db.ref(`${ROOT}/settings`).on('value', snap => { settings = snap.val() || {}; renderCurrentEventView(); });
 }
 
 function eventType(id) {
   return (events[id] && events[id].type) || 'headToHead';
+}
+function eventScoringMode(id) {
+  return (events[id] && events[id].scoringMode) || 'time';
+}
+function placementPoints() {
+  return (settings.skillsPlacementPoints && settings.skillsPlacementPoints.length)
+    ? settings.skillsPlacementPoints
+    : DEFAULT_PLACEMENT_POINTS;
 }
 
 // ---------- EVENT SELECT ----------
@@ -843,36 +854,61 @@ function renderH2HLive(eventId) {
 }
 
 // ---------- SKILLS LIVE ----------
+function bestOfAttempts(score1, score2, mode) {
+  const attempts = [score1, score2].filter(v => v !== null && v !== undefined && !isNaN(v));
+  if (!attempts.length) return null;
+  return mode === 'time' ? Math.min(...attempts) : Math.max(...attempts);
+}
+
 function renderSkillsLive(eventId) {
   const teamIds = Object.keys(teams).sort((a, b) => (teams[a].name || '').localeCompare(teams[b].name || ''));
   document.getElementById('skillsLiveEmpty').style.display = teamIds.length ? 'none' : 'block';
+  const mode = eventScoringMode(eventId);
+  const pointsTable = placementPoints();
 
   const rows = teamIds.map(teamId => {
     const key = `${eventId}__${teamId}`;
-    const run = skillsRuns[key] || { score1: '', score2: '', total: 0 };
+    const run = skillsRuns[key] || { score1: null, score2: null, best: null };
     return { teamId, key, ...run };
   });
-  rows.sort((a, b) => (b.total || 0) - (a.total || 0));
 
-  document.getElementById('skillsLiveBody').innerHTML = rows.map((r, i) => `
+  // Rank only teams with a recorded best; unranked teams sort to the bottom
+  const ranked = rows.filter(r => r.best !== null && r.best !== undefined);
+  const unranked = rows.filter(r => r.best === null || r.best === undefined);
+  ranked.sort((a, b) => mode === 'time' ? a.best - b.best : b.best - a.best);
+
+  let place = 0, prevBest = null;
+  const placeById = {};
+  ranked.forEach((r, idx) => {
+    if (r.best !== prevBest) { place = idx + 1; prevBest = r.best; }
+    placeById[r.teamId] = place;
+  });
+
+  const orderedRows = [...ranked, ...unranked];
+
+  document.getElementById('skillsLiveBody').innerHTML = orderedRows.map(r => {
+    const place = placeById[r.teamId];
+    const pts = place ? (pointsTable[place - 1] || 0) : 0;
+    return `
     <tr>
-      <td class="${i === 0 && r.total ? 'rank-1' : ''}">${i + 1}</td>
-      <td class="${i === 0 && r.total ? 'rank-1' : ''}">${escapeHtml(teams[r.teamId].name)}</td>
-      <td><input type="number" class="score-input" value="${r.score1 !== '' ? r.score1 : ''}"
+      <td class="${place === 1 ? 'rank-1' : ''}">${place || '—'}</td>
+      <td class="${place === 1 ? 'rank-1' : ''}">${escapeHtml(teams[r.teamId].name)}</td>
+      <td><input type="number" class="score-input" value="${r.score1 !== null && r.score1 !== undefined ? r.score1 : ''}"
             onchange="saveSkillsScore('${eventId}','${r.teamId}', this.value, null)"></td>
-      <td><input type="number" class="score-input" value="${r.score2 !== '' ? r.score2 : ''}"
+      <td><input type="number" class="score-input" value="${r.score2 !== null && r.score2 !== undefined ? r.score2 : ''}"
             onchange="saveSkillsScore('${eventId}','${r.teamId}', null, this.value)"></td>
-      <td><strong>${r.total || 0}</strong></td>
-    </tr>
-  `).join('');
+      <td><strong>${r.best !== null && r.best !== undefined ? r.best : '—'}</strong></td>
+      <td><strong>${pts}</strong></td>
+    </tr>`;
+  }).join('');
 }
 function saveSkillsScore(eventId, teamId, score1Val, score2Val) {
   const key = `${eventId}__${teamId}`;
-  const existing = skillsRuns[key] || { score1: 0, score2: 0 };
-  const score1 = score1Val !== null ? (parseInt(score1Val, 10) || 0) : (existing.score1 || 0);
-  const score2 = score2Val !== null ? (parseInt(score2Val, 10) || 0) : (existing.score2 || 0);
-  const total = score1 + score2;
-  db.ref(`${ROOT}/skillsRuns/${key}`).set({ eventId, teamId, score1, score2, total, updatedAt: Date.now() });
+  const existing = skillsRuns[key] || { score1: null, score2: null };
+  const score1 = score1Val !== null ? (score1Val === '' ? null : parseFloat(score1Val)) : existing.score1;
+  const score2 = score2Val !== null ? (score2Val === '' ? null : parseFloat(score2Val)) : existing.score2;
+  const best = bestOfAttempts(score1, score2, eventScoringMode(eventId));
+  db.ref(`${ROOT}/skillsRuns/${key}`).set({ eventId, teamId, score1, score2, best, updatedAt: Date.now() });
 }
 
 // ---------- TIMER ----------
