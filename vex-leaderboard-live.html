@@ -507,8 +507,8 @@ function playAlarm() {
   const ctx = ensureAudioContext();
   const now = ctx.currentTime;
   const beepDuration = 0.4;
-  const gap = 0.12;
-  const beepCount = 6;
+  const gap = 0.9;
+  const beepCount = 3;
 
   for (let i = 0; i < beepCount; i++) {
     const start = now + i * (beepDuration + gap);
