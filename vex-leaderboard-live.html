@@ -200,9 +200,9 @@
       <button class="timer-btn secondary" onclick="resetTimer()">Reset</button>
     </div>
     <div class="timer-settings">
-      <label><input type="radio" name="timerMode" value="up" checked onchange="setTimerMode('up')"> Count Up</label>
-      <label><input type="radio" name="timerMode" value="down" onchange="setTimerMode('down')"> Count Down</label>
-      <span id="countDownSetting" style="display:none;">
+      <label><input type="radio" name="timerMode" value="down" checked onchange="setTimerMode('down')"> Count Down</label>
+      <label><input type="radio" name="timerMode" value="up" onchange="setTimerMode('up')"> Count Up</label>
+      <span id="countDownSetting" style="display:inline;">
         from <input type="number" id="countDownMinutes" value="1" min="0"> min
         <input type="number" id="countDownSeconds" value="0" min="0" max="59"> sec
       </span>
@@ -432,7 +432,7 @@ function saveSkillsScore(eventId, teamId, score1Val, score2Val) {
 // ---------- TIMER ----------
 let timerInterval = null;
 let timerSeconds = 0;
-let timerMode = 'up';
+let timerMode = 'down';
 let timerRunning = false;
 
 function setTimerMode(mode) {
@@ -442,6 +442,7 @@ function setTimerMode(mode) {
 }
 function startTimer() {
   if (timerRunning) return;
+  ensureAudioContext(); // unlock audio on this user gesture so the alarm can play later
   if (timerMode === 'down' && timerSeconds === 0) {
     const min = parseInt(document.getElementById('countDownMinutes').value, 10) || 0;
     const sec = parseInt(document.getElementById('countDownSeconds').value, 10) || 0;
@@ -456,6 +457,8 @@ function startTimer() {
       if (timerSeconds <= 0) {
         timerSeconds = 0;
         stopTimer();
+        playAlarm();
+        flashTimer();
       }
     }
     renderTimer();
@@ -476,6 +479,57 @@ function renderTimer() {
   document.getElementById('timerDisplay').textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 renderTimer();
+
+function flashTimer() {
+  const el = document.getElementById('timerDisplay');
+  let flashes = 0;
+  const flashInterval = setInterval(() => {
+    el.style.background = (flashes % 2 === 0) ? 'var(--red)' : 'var(--black)';
+    flashes++;
+    if (flashes >= 10) {
+      clearInterval(flashInterval);
+      el.style.background = 'var(--black)';
+    }
+  }, 300);
+}
+
+// ---------- ALARM (buzzer/bell) ----------
+let audioCtx = null;
+function ensureAudioContext() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  if (audioCtx.state === 'suspended') audioCtx.resume();
+  return audioCtx;
+}
+
+function playAlarm() {
+  const ctx = ensureAudioContext();
+  const now = ctx.currentTime;
+  const beepDuration = 0.4;
+  const gap = 0.12;
+  const beepCount = 6;
+
+  for (let i = 0; i < beepCount; i++) {
+    const start = now + i * (beepDuration + gap);
+
+    // Two detuned square oscillators layered for a harsher, more piercing buzzer tone
+    [1000, 1400].forEach(freq => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(freq, start);
+      gain.gain.setValueAtTime(0, start);
+      gain.gain.linearRampToValueAtTime(0.9, start + 0.015);
+      gain.gain.setValueAtTime(0.9, start + beepDuration - 0.03);
+      gain.gain.linearRampToValueAtTime(0, start + beepDuration);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(start);
+      osc.stop(start + beepDuration);
+    });
+  }
+}
 
 function escapeHtml(str) {
   if (str === undefined || str === null) return '';
