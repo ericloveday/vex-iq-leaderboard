@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VEX IQ Leaderboard</title>
+<title>Elective Team Leaderboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -27,6 +27,7 @@
     flex-direction: column;
     height: 100vh;
     width: 100vw;
+    overflow: hidden;
   }
   .titlebar {
     background: var(--red);
@@ -35,6 +36,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    flex-shrink: 0;
   }
   .titlebar h1 {
     margin: 0;
@@ -51,7 +53,8 @@
   .board {
     flex: 1;
     padding: 30px 40px;
-    overflow: hidden;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   table {
     width: 100%;
@@ -98,8 +101,8 @@
 
 <div class="wrap">
   <div class="titlebar">
-    <h1>VEX IQ Leaderboard</h1>
-    <div class="subtitle" id="scopeLabel">Season Standings</div>
+    <h1>Elective Team Leaderboard</h1>
+    <div class="subtitle" id="scopeLabel">Team Standings</div>
   </div>
   <div class="board">
     <table id="board" style="display:none;">
