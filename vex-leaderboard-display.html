@@ -144,9 +144,11 @@ const ROOT = "vexLeaderboard";
 
 let teams = {};
 let matches = {};
+let skillsRuns = {};
 
 db.ref(`${ROOT}/teams`).on('value', snap => { teams = snap.val() || {}; render(); });
 db.ref(`${ROOT}/matches`).on('value', snap => { matches = snap.val() || {}; render(); });
+db.ref(`${ROOT}/skillsRuns`).on('value', snap => { skillsRuns = snap.val() || {}; render(); });
 
 function computeStandings() {
   const stats = {};
@@ -164,6 +166,22 @@ function computeStandings() {
     else { a.t++; b.t++; a.pts += 1; b.pts += 1; }
   });
 
+  const skillsByEvent = {};
+  Object.values(skillsRuns).forEach(r => {
+    if (!stats[r.teamId]) return;
+    if (!skillsByEvent[r.eventId]) skillsByEvent[r.eventId] = [];
+    skillsByEvent[r.eventId].push(r);
+  });
+  Object.values(skillsByEvent).forEach(runsInEvent => {
+    const ranked = [...runsInEvent].sort((a, b) => b.total - a.total);
+    let place = 0, prevScore = null;
+    ranked.forEach((r, idx) => {
+      if (r.total !== prevScore) { place = idx + 1; prevScore = r.total; }
+      const pts = place === 1 ? 2 : place === 2 ? 1 : 0;
+      stats[r.teamId].pts += pts;
+    });
+  });
+
   return Object.values(stats).sort((x, y) => {
     if (y.pts !== x.pts) return y.pts - x.pts;
     const diffX = x.pf - x.pa, diffY = y.pf - y.pa;
@@ -174,7 +192,7 @@ function computeStandings() {
 
 function render() {
   const standings = computeStandings();
-  const hasMatches = Object.keys(matches).length > 0 && Object.keys(teams).length > 0;
+  const hasMatches = (Object.keys(matches).length > 0 || Object.keys(skillsRuns).length > 0) && Object.keys(teams).length > 0;
 
   document.getElementById('board').style.display = hasMatches ? 'table' : 'none';
   document.getElementById('emptyState').style.display = hasMatches ? 'none' : 'block';
