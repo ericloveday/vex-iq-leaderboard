@@ -531,15 +531,23 @@ function renderMatches() {
   const body = document.getElementById('matchesBody');
   const ids = Object.keys(matches).sort((a, b) => (matches[b].createdAt || 0) - (matches[a].createdAt || 0));
   document.getElementById('matchesEmpty').style.display = ids.length ? 'none' : 'block';
+  const teamNames = idsArr => idsArr.map(id => teams[id] ? teams[id].name : '(deleted team)').join(' + ');
   body.innerHTML = ids.map(id => {
     const m = matches[id];
     const evName = events[m.eventId] ? events[m.eventId].name : '(deleted event)';
-    const tA = teams[m.teamAId] ? teams[m.teamAId].name : '(deleted team)';
-    const tB = teams[m.teamBId] ? teams[m.teamBId].name : '(deleted team)';
+    let matchup, result;
+    if (m.teamAIds && m.teamBIds) {
+      matchup = `${escapeHtml(teamNames(m.teamAIds))} <span style="color:#1a7a2e;font-weight:700;">(Green)</span> vs ${escapeHtml(teamNames(m.teamBIds))} <span style="color:#1565c0;font-weight:700;">(Blue)</span>`;
+    } else {
+      const tA = teams[m.teamAId] ? teams[m.teamAId].name : '(deleted team)';
+      const tB = teams[m.teamBId] ? teams[m.teamBId].name : '(deleted team)';
+      matchup = `${escapeHtml(tA)} vs ${escapeHtml(tB)}`;
+    }
+    result = `${m.scoreA} – ${m.scoreB}`;
     return `<tr>
       <td>${escapeHtml(evName)}</td>
-      <td>${escapeHtml(tA)} vs ${escapeHtml(tB)}</td>
-      <td>${m.scoreA} – ${m.scoreB}</td>
+      <td>${matchup}</td>
+      <td>${result}</td>
       <td><button class="small-btn" onclick="deleteMatch('${id}')">Remove</button></td>
     </tr>`;
   }).join('');
@@ -585,6 +593,20 @@ function renderSkillsRuns() {
   }).join('');
 }
 
+// Normalizes any match (1v1 or 2v2 alliance) into two "sides" of team ids + a score
+function matchSides(m) {
+  if (m.teamAIds && m.teamBIds) {
+    return [
+      { teamIds: m.teamAIds, score: m.scoreA },
+      { teamIds: m.teamBIds, score: m.scoreB }
+    ];
+  }
+  return [
+    { teamIds: [m.teamAId], score: m.scoreA },
+    { teamIds: [m.teamBId], score: m.scoreB }
+  ];
+}
+
 // ---------- STANDINGS ----------
 function computeStandings(filterEventId) {
   const stats = {};
@@ -594,15 +616,22 @@ function computeStandings(filterEventId) {
 
   Object.values(matches).forEach(m => {
     if (filterEventId !== 'season' && m.eventId !== filterEventId) return;
-    if (!stats[m.teamAId] || !stats[m.teamBId]) return;
+    const [sideA, sideB] = matchSides(m);
+    const allIds = [...sideA.teamIds, ...sideB.teamIds];
+    if (allIds.some(id => !stats[id])) return;
 
-    const a = stats[m.teamAId], b = stats[m.teamBId];
-    a.pf += m.scoreA; a.pa += m.scoreB;
-    b.pf += m.scoreB; b.pa += m.scoreA;
+    sideA.teamIds.forEach(id => { stats[id].pf += sideA.score; stats[id].pa += sideB.score; });
+    sideB.teamIds.forEach(id => { stats[id].pf += sideB.score; stats[id].pa += sideA.score; });
 
-    if (m.scoreA > m.scoreB) { a.w++; a.matchPts += 2; b.l++; }
-    else if (m.scoreA < m.scoreB) { b.w++; b.matchPts += 2; a.l++; }
-    else { a.t++; b.t++; a.matchPts += 1; b.matchPts += 1; }
+    if (sideA.score > sideB.score) {
+      sideA.teamIds.forEach(id => { stats[id].w++; stats[id].matchPts += 2; });
+      sideB.teamIds.forEach(id => { stats[id].l++; });
+    } else if (sideA.score < sideB.score) {
+      sideB.teamIds.forEach(id => { stats[id].w++; stats[id].matchPts += 2; });
+      sideA.teamIds.forEach(id => { stats[id].l++; });
+    } else {
+      allIds.forEach(id => { stats[id].t++; stats[id].matchPts += 1; });
+    }
   });
 
   const skillsByEvent = {};
