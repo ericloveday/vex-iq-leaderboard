@@ -99,7 +99,7 @@
 <div class="wrap">
   <div class="titlebar">
     <h1>VEX IQ Leaderboard</h1>
-    <div class="subtitle" id="scopeLabel">Team Standings</div>
+    <div class="subtitle" id="scopeLabel">Season Standings</div>
   </div>
   <div class="board">
     <table id="board" style="display:none;">
@@ -145,10 +145,24 @@ const ROOT = "vexLeaderboard";
 let teams = {};
 let matches = {};
 let skillsRuns = {};
+let events = {};
+let settings = {};
+const DEFAULT_PLACEMENT_POINTS = [6, 4, 3, 2, 1];
 
 db.ref(`${ROOT}/teams`).on('value', snap => { teams = snap.val() || {}; render(); });
 db.ref(`${ROOT}/matches`).on('value', snap => { matches = snap.val() || {}; render(); });
 db.ref(`${ROOT}/skillsRuns`).on('value', snap => { skillsRuns = snap.val() || {}; render(); });
+db.ref(`${ROOT}/events`).on('value', snap => { events = snap.val() || {}; render(); });
+db.ref(`${ROOT}/settings`).on('value', snap => { settings = snap.val() || {}; render(); });
+
+function eventScoringMode(id) {
+  return (events[id] && events[id].scoringMode) || 'time';
+}
+function placementPoints() {
+  return (settings.skillsPlacementPoints && settings.skillsPlacementPoints.length)
+    ? settings.skillsPlacementPoints
+    : DEFAULT_PLACEMENT_POINTS;
+}
 
 function computeStandings() {
   const stats = {};
@@ -184,12 +198,21 @@ function computeStandings() {
     if (!skillsByEvent[r.eventId]) skillsByEvent[r.eventId] = [];
     skillsByEvent[r.eventId].push(r);
   });
-  Object.values(skillsByEvent).forEach(runsInEvent => {
-    const ranked = [...runsInEvent].sort((a, b) => b.total - a.total);
-    let place = 0, prevScore = null;
+
+  const pointsTable = placementPoints();
+
+  Object.entries(skillsByEvent).forEach(([evId, runsInEvent]) => {
+    const mode = eventScoringMode(evId);
+    const withBest = runsInEvent
+      .map(r => ({ teamId: r.teamId, best: (r.best !== undefined && r.best !== null) ? r.best : r.total }))
+      .filter(r => r.best !== undefined && r.best !== null && !isNaN(r.best));
+
+    const ranked = withBest.sort((a, b) => mode === 'time' ? a.best - b.best : b.best - a.best);
+
+    let place = 0, prevBest = null;
     ranked.forEach((r, idx) => {
-      if (r.total !== prevScore) { place = idx + 1; prevScore = r.total; }
-      const pts = place === 1 ? 2 : place === 2 ? 1 : 0;
+      if (r.best !== prevBest) { place = idx + 1; prevBest = r.best; }
+      const pts = pointsTable[place - 1] || 0;
       stats[r.teamId].pts += pts;
     });
   });
