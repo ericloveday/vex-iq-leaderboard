@@ -178,6 +178,16 @@
   tr.done-row td { color: #aaa; }
   .status-pending { color: var(--red); font-weight: 700; }
   .status-done { color: #1a7a2e; font-weight: 700; }
+  .format-toggle { margin-bottom: 14px; }
+  .alliance-row {
+    padding: 12px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+  }
+  .alliance-row.alliance-green { background: #e8f5e9; }
+  .alliance-row.alliance-blue { background: #e3f2fd; }
+  .alliance-label-green { color: #1a7a2e; font-weight: 800; min-width: 110px; }
+  .alliance-label-blue { color: #1565c0; font-weight: 800; min-width: 110px; }
 </style>
 </head>
 <body>
@@ -242,14 +252,40 @@
 
   <div class="card" id="headToHeadMatchPanel" style="display:none;">
     <h3>Log Match</h3>
-    <div class="form-row">
-      <select id="liveTeamA"></select>
-      <input type="number" id="liveScoreA" class="score-input" placeholder="Score">
-      <span style="font-weight:700;">vs</span>
-      <input type="number" id="liveScoreB" class="score-input" placeholder="Score">
-      <select id="liveTeamB"></select>
-      <button class="action-btn" onclick="addLiveMatch()">Save Match</button>
+    <div class="form-row format-toggle">
+      <label><input type="radio" name="matchFormat" value="1v1" checked onchange="setMatchFormat('1v1')"> 1v1</label>
+      <label><input type="radio" name="matchFormat" value="2v2" onchange="setMatchFormat('2v2')"> 2v2 Alliance</label>
     </div>
+
+    <div id="format1v1">
+      <div class="form-row">
+        <select id="liveTeamA"></select>
+        <input type="number" id="liveScoreA" class="score-input" placeholder="Score">
+        <span style="font-weight:700;">vs</span>
+        <input type="number" id="liveScoreB" class="score-input" placeholder="Score">
+        <select id="liveTeamB"></select>
+        <button class="action-btn" onclick="addLiveMatch()">Save Match</button>
+      </div>
+    </div>
+
+    <div id="format2v2" style="display:none;">
+      <div class="form-row alliance-row alliance-green">
+        <span class="alliance-label-green">Green Alliance</span>
+        <select id="greenTeam1"></select>
+        <select id="greenTeam2"></select>
+        <input type="number" id="greenScore" class="score-input" placeholder="Combined Score">
+      </div>
+      <div class="form-row alliance-row alliance-blue">
+        <span class="alliance-label-blue">Blue Alliance</span>
+        <select id="blueTeam1"></select>
+        <select id="blueTeam2"></select>
+        <input type="number" id="blueScore" class="score-input" placeholder="Combined Score">
+      </div>
+      <div class="form-row">
+        <button class="action-btn" onclick="addAllianceMatch()">Save Alliance Match</button>
+      </div>
+    </div>
+
     <h3 style="margin-top:22px;">Live Standings — This Event</h3>
     <table>
       <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>T</th><th>Diff</th></tr></thead>
@@ -447,6 +483,8 @@ function renderSchedule(eventId) {
 
 function loadScheduleMatch(eventId, idx) {
   const r = schedules[eventId].rounds[idx];
+  document.querySelector('input[name="matchFormat"][value="1v1"]').checked = true;
+  setMatchFormat('1v1');
   document.getElementById('liveTeamA').value = r.teamAId;
   document.getElementById('liveTeamB').value = r.teamBId;
   document.getElementById('liveScoreA').value = '';
@@ -474,6 +512,16 @@ function renderTeamSelects() {
     .join('');
   document.getElementById('liveTeamA').innerHTML = '<option value="">Team A</option>' + opts;
   document.getElementById('liveTeamB').innerHTML = '<option value="">Team B</option>' + opts;
+  document.getElementById('greenTeam1').innerHTML = '<option value="">Team</option>' + opts;
+  document.getElementById('greenTeam2').innerHTML = '<option value="">Team</option>' + opts;
+  document.getElementById('blueTeam1').innerHTML = '<option value="">Team</option>' + opts;
+  document.getElementById('blueTeam2').innerHTML = '<option value="">Team</option>' + opts;
+}
+
+// ---------- MATCH FORMAT TOGGLE ----------
+function setMatchFormat(format) {
+  document.getElementById('format1v1').style.display = format === '1v1' ? 'block' : 'none';
+  document.getElementById('format2v2').style.display = format === '2v2' ? 'block' : 'none';
 }
 
 // ---------- HEAD TO HEAD ----------
@@ -496,19 +544,72 @@ function addLiveMatch() {
       document.getElementById('liveScoreB').value = '';
     });
 }
+function addAllianceMatch() {
+  const eventId = document.getElementById('liveEventSelect').value;
+  const g1 = document.getElementById('greenTeam1').value;
+  const g2 = document.getElementById('greenTeam2').value;
+  const b1 = document.getElementById('blueTeam1').value;
+  const b2 = document.getElementById('blueTeam2').value;
+  const greenScore = parseInt(document.getElementById('greenScore').value, 10);
+  const blueScore = parseInt(document.getElementById('blueScore').value, 10);
+
+  if (!eventId) return alert('Select an event.');
+  const ids = [g1, g2, b1, b2];
+  if (ids.some(id => !id)) return alert('Select all four teams.');
+  if (new Set(ids).size !== 4) return alert('All four teams must be different.');
+  if (isNaN(greenScore) || isNaN(blueScore)) return alert('Enter both alliance scores.');
+
+  db.ref(`${ROOT}/matches`).push({
+    eventId,
+    teamAIds: [g1, g2],
+    teamBIds: [b1, b2],
+    scoreA: greenScore,
+    scoreB: blueScore,
+    createdAt: Date.now()
+  }).then(() => {
+    document.getElementById('greenScore').value = '';
+    document.getElementById('blueScore').value = '';
+  });
+}
+
+// Normalizes any match (1v1 or 2v2 alliance) into two "sides" of team ids + a score
+function matchSides(m) {
+  if (m.teamAIds && m.teamBIds) {
+    return [
+      { teamIds: m.teamAIds, score: m.scoreA },
+      { teamIds: m.teamBIds, score: m.scoreB }
+    ];
+  }
+  return [
+    { teamIds: [m.teamAId], score: m.scoreA },
+    { teamIds: [m.teamBId], score: m.scoreB }
+  ];
+}
+
 function renderH2HLive(eventId) {
   const stats = {};
   Object.keys(teams).forEach(id => { stats[id] = { id, name: teams[id].name, w: 0, l: 0, t: 0, pf: 0, pa: 0 }; });
+
   Object.values(matches).forEach(m => {
     if (m.eventId !== eventId) return;
-    if (!stats[m.teamAId] || !stats[m.teamBId]) return;
-    const a = stats[m.teamAId], b = stats[m.teamBId];
-    a.pf += m.scoreA; a.pa += m.scoreB;
-    b.pf += m.scoreB; b.pa += m.scoreA;
-    if (m.scoreA > m.scoreB) { a.w++; b.l++; }
-    else if (m.scoreA < m.scoreB) { b.w++; a.l++; }
-    else { a.t++; b.t++; }
+    const [sideA, sideB] = matchSides(m);
+    const allIds = [...sideA.teamIds, ...sideB.teamIds];
+    if (allIds.some(id => !stats[id])) return;
+
+    sideA.teamIds.forEach(id => { stats[id].pf += sideA.score; stats[id].pa += sideB.score; });
+    sideB.teamIds.forEach(id => { stats[id].pf += sideB.score; stats[id].pa += sideA.score; });
+
+    if (sideA.score > sideB.score) {
+      sideA.teamIds.forEach(id => stats[id].w++);
+      sideB.teamIds.forEach(id => stats[id].l++);
+    } else if (sideA.score < sideB.score) {
+      sideB.teamIds.forEach(id => stats[id].w++);
+      sideA.teamIds.forEach(id => stats[id].l++);
+    } else {
+      allIds.forEach(id => stats[id].t++);
+    }
   });
+
   const arr = Object.values(stats).sort((x, y) => {
     const px = x.w * 2 + x.t, py = y.w * 2 + y.t;
     if (py !== px) return py - px;
