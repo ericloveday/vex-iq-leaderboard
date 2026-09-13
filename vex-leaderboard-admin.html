@@ -231,6 +231,7 @@
     <button class="tab-btn" data-tab="skills" onclick="switchTab('skills')">Skills Runs</button>
     <button class="tab-btn" data-tab="teams" onclick="switchTab('teams')">Teams</button>
     <button class="tab-btn" data-tab="events" onclick="switchTab('events')">Events</button>
+    <button class="tab-btn" data-tab="points" onclick="switchTab('points')">Points Settings</button>
   </div>
 
   <!-- STANDINGS PANEL -->
@@ -289,16 +290,16 @@
         <select id="skillsTeamSelect"></select>
       </div>
       <div class="form-row">
-        <input type="number" id="skillsScore1" placeholder="Score 1" style="max-width:100px;">
-        <input type="number" id="skillsScore2" placeholder="Score 2" style="max-width:100px;">
+        <input type="number" id="skillsScore1" placeholder="Attempt 1" style="max-width:100px;">
+        <input type="number" id="skillsScore2" placeholder="Attempt 2" style="max-width:100px;">
         <button class="action-btn" onclick="addSkillsRun()">Save Run</button>
       </div>
-      <div style="font-size:12px; color:#888;">Re-entering a run for the same team + event overwrites their previous score for that event.</div>
+      <div style="font-size:12px; color:#888;">Re-entering a run for the same team + event overwrites their previous attempts for that event. The team's BEST attempt is used for ranking — fastest time for Time events, highest score for Points events.</div>
     </div>
     <div class="card">
       <h3>Recent Skills Runs</h3>
       <table>
-        <thead><tr><th>Event</th><th>Team</th><th>Score 1</th><th>Score 2</th><th>Total</th><th></th></tr></thead>
+        <thead><tr><th>Event</th><th>Team</th><th>Attempt 1</th><th>Attempt 2</th><th>Best</th><th></th></tr></thead>
         <tbody id="skillsBody"></tbody>
       </table>
       <div id="skillsEmpty" class="empty-msg" style="display:none;">No skills runs logged yet.</div>
@@ -331,9 +332,13 @@
       <div class="form-row">
         <input type="text" id="newEventName" placeholder="Event name">
         <input type="date" id="newEventDate">
-        <select id="newEventType">
+        <select id="newEventType" onchange="onNewEventTypeChange()">
           <option value="headToHead">Head-to-Head</option>
           <option value="skills">Skills Run</option>
+        </select>
+        <select id="newEventScoringMode" style="display:none;">
+          <option value="time">Time (fastest wins)</option>
+          <option value="points">Points (highest wins)</option>
         </select>
         <button class="action-btn" onclick="addEvent()">Add Event</button>
       </div>
@@ -345,6 +350,22 @@
         <tbody id="eventsBody"></tbody>
       </table>
       <div id="eventsEmpty" class="empty-msg" style="display:none;">No events yet — add one above.</div>
+    </div>
+  </div>
+
+  <!-- POINTS SETTINGS PANEL -->
+  <div class="panel" id="panel-points">
+    <div class="card">
+      <h3>Skills Placement Points</h3>
+      <div style="font-size:13px; color:#555; margin-bottom:14px;">
+        Sets how many points a team earns for their placement within a single skills event (like a Mario Party mini-game payout). Anyone placing below this list earns 0. This applies across all skills events and feeds into the season's Total Pts.
+      </div>
+      <div id="placementPointsRows"></div>
+      <div class="form-row">
+        <button class="action-btn secondary" onclick="addPlacementRow()">Add Place</button>
+        <button class="action-btn secondary" onclick="removePlacementRow()">Remove Last Place</button>
+        <button class="action-btn" onclick="savePlacementPoints()">Save Points Table</button>
+      </div>
     </div>
   </div>
 </main>
@@ -370,6 +391,8 @@ let teams = {};
 let events = {};
 let matches = {};
 let skillsRuns = {};
+let settings = {};
+const DEFAULT_PLACEMENT_POINTS = [6, 4, 3, 2, 1];
 
 // ---------- AUTH ----------
 function doSignIn() {
@@ -425,10 +448,23 @@ function attachListeners() {
     renderSkillsRuns();
     renderStandings();
   });
+  db.ref(`${ROOT}/settings`).on('value', snap => {
+    settings = snap.val() || {};
+    renderPlacementPointsRows();
+    renderStandings();
+  });
 }
 
 function eventType(id) {
   return (events[id] && events[id].type) || 'headToHead';
+}
+function eventScoringMode(id) {
+  return (events[id] && events[id].scoringMode) || 'time';
+}
+function placementPoints() {
+  return (settings.skillsPlacementPoints && settings.skillsPlacementPoints.length)
+    ? settings.skillsPlacementPoints
+    : DEFAULT_PLACEMENT_POINTS;
 }
 
 // ---------- TEAMS ----------
@@ -462,12 +498,19 @@ function renderTeamSelects() {
 }
 
 // ---------- EVENTS ----------
+function onNewEventTypeChange() {
+  const type = document.getElementById('newEventType').value;
+  document.getElementById('newEventScoringMode').style.display = type === 'skills' ? 'inline-block' : 'none';
+}
 function addEvent() {
   const name = document.getElementById('newEventName').value.trim();
   const date = document.getElementById('newEventDate').value;
   const type = document.getElementById('newEventType').value;
+  const scoringMode = document.getElementById('newEventScoringMode').value;
   if (!name) return;
-  db.ref(`${ROOT}/events`).push({ name, date: date || '', type, createdAt: Date.now() });
+  const eventData = { name, date: date || '', type, createdAt: Date.now() };
+  if (type === 'skills') eventData.scoringMode = scoringMode;
+  db.ref(`${ROOT}/events`).push(eventData);
   document.getElementById('newEventName').value = '';
   document.getElementById('newEventDate').value = '';
 }
@@ -484,7 +527,7 @@ function renderEvents() {
     .map(id => `<tr>
       <td>${escapeHtml(events[id].name)}</td>
       <td>${escapeHtml(events[id].date || '—')}</td>
-      <td><span class="type-badge ${eventType(id)}">${eventType(id) === 'skills' ? 'Skills Run' : 'Head-to-Head'}</span></td>
+      <td><span class="type-badge ${eventType(id)}">${eventType(id) === 'skills' ? `Skills Run (${eventScoringMode(id) === 'time' ? 'Time' : 'Points'})` : 'Head-to-Head'}</span></td>
       <td><button class="small-btn" onclick="deleteEvent('${id}')">Remove</button></td>
     </tr>`)
     .join('');
@@ -554,18 +597,27 @@ function renderMatches() {
 }
 
 // ---------- SKILLS RUNS ----------
+function bestOfAttempts(score1, score2, mode) {
+  const attempts = [score1, score2].filter(v => v !== null && v !== undefined && !isNaN(v));
+  if (!attempts.length) return null;
+  return mode === 'time' ? Math.min(...attempts) : Math.max(...attempts);
+}
+
 function addSkillsRun() {
   const eventId = document.getElementById('skillsEventSelect').value;
   const teamId = document.getElementById('skillsTeamSelect').value;
-  const score1 = parseInt(document.getElementById('skillsScore1').value, 10) || 0;
-  const score2 = parseInt(document.getElementById('skillsScore2').value, 10) || 0;
+  const raw1 = document.getElementById('skillsScore1').value;
+  const raw2 = document.getElementById('skillsScore2').value;
+  const score1 = raw1 === '' ? null : parseFloat(raw1);
+  const score2 = raw2 === '' ? null : parseFloat(raw2);
 
   if (!eventId) return alert('Select an event.');
   if (!teamId) return alert('Select a team.');
+  if (score1 === null && score2 === null) return alert('Enter at least one attempt.');
 
-  const total = score1 + score2;
+  const best = bestOfAttempts(score1, score2, eventScoringMode(eventId));
   const key = `${eventId}__${teamId}`;
-  db.ref(`${ROOT}/skillsRuns/${key}`).set({ eventId, teamId, score1, score2, total, updatedAt: Date.now() });
+  db.ref(`${ROOT}/skillsRuns/${key}`).set({ eventId, teamId, score1, score2, best, updatedAt: Date.now() });
 
   document.getElementById('skillsScore1').value = '';
   document.getElementById('skillsScore2').value = '';
@@ -585,9 +637,9 @@ function renderSkillsRuns() {
     return `<tr>
       <td>${escapeHtml(evName)}</td>
       <td>${escapeHtml(tName)}</td>
-      <td>${r.score1}</td>
-      <td>${r.score2}</td>
-      <td><strong>${r.total}</strong></td>
+      <td>${r.score1 !== null && r.score1 !== undefined ? r.score1 : '—'}</td>
+      <td>${r.score2 !== null && r.score2 !== undefined ? r.score2 : '—'}</td>
+      <td><strong>${r.best !== null && r.best !== undefined ? r.best : '—'}</strong></td>
       <td><button class="small-btn" onclick="deleteSkillsRun('${key}')">Remove</button></td>
     </tr>`;
   }).join('');
@@ -641,12 +693,25 @@ function computeStandings(filterEventId) {
     if (!skillsByEvent[r.eventId]) skillsByEvent[r.eventId] = [];
     skillsByEvent[r.eventId].push(r);
   });
-  Object.values(skillsByEvent).forEach(runsInEvent => {
-    const ranked = [...runsInEvent].sort((a, b) => b.total - a.total);
-    let place = 0, prevScore = null;
+
+  const pointsTable = placementPoints();
+
+  Object.entries(skillsByEvent).forEach(([evId, runsInEvent]) => {
+    const mode = eventScoringMode(evId);
+    const withBest = runsInEvent
+      .map(r => ({ teamId: r.teamId, best: (r.best !== undefined && r.best !== null) ? r.best : r.total }))
+      .filter(r => r.best !== undefined && r.best !== null && !isNaN(r.best));
+
+    // Time events: lowest wins. Points events: highest wins.
+    const ranked = withBest.sort((a, b) => mode === 'time' ? a.best - b.best : b.best - a.best);
+
+    let place = 0, prevBest = null;
     ranked.forEach((r, idx) => {
-      if (r.total !== prevScore) { place = idx + 1; prevScore = r.total; }
-      const pts = place === 1 ? 2 : place === 2 ? 1 : 0;
+      if (r.best !== prevBest) {
+        place = idx + 1; // standard competition ranking: ties share a place, next place skips ahead
+        prevBest = r.best;
+      }
+      const pts = pointsTable[place - 1] || 0;
       stats[r.teamId].skillsPts += pts;
     });
   });
@@ -678,6 +743,48 @@ function renderStandings() {
       <td>${s.pf - s.pa > 0 ? '+' : ''}${s.pf - s.pa}</td>
     </tr>
   `).join('');
+}
+
+// ---------- POINTS SETTINGS ----------
+function renderPlacementPointsRows() {
+  const container = document.getElementById('placementPointsRows');
+  const pts = placementPoints();
+  container.innerHTML = pts.map((val, idx) => `
+    <div class="form-row">
+      <span style="min-width:70px; font-weight:700;">${ordinal(idx + 1)} place:</span>
+      <input type="number" class="placement-points-input" data-idx="${idx}" value="${val}" style="max-width:100px;">
+    </div>
+  `).join('');
+}
+function ordinal(n) {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+function addPlacementRow() {
+  const current = Array.from(document.querySelectorAll('.placement-points-input')).map(i => parseInt(i.value, 10) || 0);
+  current.push(0);
+  renderPlacementRowsFromArray(current);
+}
+function removePlacementRow() {
+  const current = Array.from(document.querySelectorAll('.placement-points-input')).map(i => parseInt(i.value, 10) || 0);
+  if (current.length <= 1) return;
+  current.pop();
+  renderPlacementRowsFromArray(current);
+}
+function renderPlacementRowsFromArray(arr) {
+  const container = document.getElementById('placementPointsRows');
+  container.innerHTML = arr.map((val, idx) => `
+    <div class="form-row">
+      <span style="min-width:70px; font-weight:700;">${ordinal(idx + 1)} place:</span>
+      <input type="number" class="placement-points-input" data-idx="${idx}" value="${val}" style="max-width:100px;">
+    </div>
+  `).join('');
+}
+function savePlacementPoints() {
+  const values = Array.from(document.querySelectorAll('.placement-points-input')).map(i => parseInt(i.value, 10) || 0);
+  db.ref(`${ROOT}/settings/skillsPlacementPoints`).set(values);
+  alert('Points table saved.');
 }
 
 function escapeHtml(str) {
