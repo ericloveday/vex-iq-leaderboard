@@ -157,13 +157,25 @@ function computeStandings() {
   });
 
   Object.values(matches).forEach(m => {
-    if (!stats[m.teamAId] || !stats[m.teamBId]) return;
-    const a = stats[m.teamAId], b = stats[m.teamBId];
-    a.pf += m.scoreA; a.pa += m.scoreB;
-    b.pf += m.scoreB; b.pa += m.scoreA;
-    if (m.scoreA > m.scoreB) { a.w++; a.pts += 2; b.l++; }
-    else if (m.scoreA < m.scoreB) { b.w++; b.pts += 2; a.l++; }
-    else { a.t++; b.t++; a.pts += 1; b.pts += 1; }
+    const sides = m.teamAIds && m.teamBIds
+      ? [{ teamIds: m.teamAIds, score: m.scoreA }, { teamIds: m.teamBIds, score: m.scoreB }]
+      : [{ teamIds: [m.teamAId], score: m.scoreA }, { teamIds: [m.teamBId], score: m.scoreB }];
+    const [sideA, sideB] = sides;
+    const allIds = [...sideA.teamIds, ...sideB.teamIds];
+    if (allIds.some(id => !stats[id])) return;
+
+    sideA.teamIds.forEach(id => { stats[id].pf += sideA.score; stats[id].pa += sideB.score; });
+    sideB.teamIds.forEach(id => { stats[id].pf += sideB.score; stats[id].pa += sideA.score; });
+
+    if (sideA.score > sideB.score) {
+      sideA.teamIds.forEach(id => { stats[id].w++; stats[id].pts += 2; });
+      sideB.teamIds.forEach(id => { stats[id].l++; });
+    } else if (sideA.score < sideB.score) {
+      sideB.teamIds.forEach(id => { stats[id].w++; stats[id].pts += 2; });
+      sideA.teamIds.forEach(id => { stats[id].l++; });
+    } else {
+      allIds.forEach(id => { stats[id].t++; stats[id].pts += 1; });
+    }
   });
 
   const skillsByEvent = {};
