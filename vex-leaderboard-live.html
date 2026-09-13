@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VEX IQ Leaderboard — Run Live Event</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+  :root {
+    --red: #ce1f07;
+    --black: #111111;
+    --white: #ffffff;
+    --gray-bg: #f4f4f4;
+    --gray-border: #ddd;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Montserrat', sans-serif;
+    background: var(--gray-bg);
+    color: var(--black);
+  }
+  header {
+    background: var(--black);
+    color: var(--white);
+    padding: 18px 24px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 6px solid var(--red);
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  header h1 { margin: 0; font-size: 22px; font-weight: 800; }
+  header h1 span { color: var(--red); }
+  header a.nav-link {
+    color: var(--white);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 13px;
+    border: 2px solid var(--white);
+    padding: 6px 14px;
+    border-radius: 6px;
+  }
+  #signOutBtn {
+    background: var(--red);
+    color: var(--white);
+    border: none;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: 'Montserrat', sans-serif;
+  }
+  #loginScreen {
+    max-width: 380px;
+    margin: 80px auto;
+    background: var(--white);
+    padding: 32px;
+    border-radius: 10px;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.12);
+    text-align: center;
+  }
+  #loginScreen input {
+    width: 100%;
+    padding: 10px 12px;
+    margin: 8px 0;
+    border: 1px solid var(--gray-border);
+    border-radius: 6px;
+    font-family: 'Montserrat', sans-serif;
+    font-size: 14px;
+  }
+  #loginScreen button {
+    width: 100%;
+    background: var(--red);
+    color: var(--white);
+    border: none;
+    padding: 11px;
+    border-radius: 6px;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    margin-top: 8px;
+  }
+  #loginError { color: var(--red); font-size: 13px; min-height: 18px; margin-top: 4px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 24px; display: none; }
+  .card {
+    background: var(--white);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 18px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+  .card h3 {
+    margin-top: 0;
+    font-size: 16px;
+    font-weight: 700;
+    border-bottom: 2px solid var(--gray-bg);
+    padding-bottom: 10px;
+  }
+  .form-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  input, select {
+    padding: 9px 10px;
+    border: 1px solid var(--gray-border);
+    border-radius: 6px;
+    font-family: 'Montserrat', sans-serif;
+    font-size: 14px;
+  }
+  select { min-width: 200px; }
+
+  /* Timer */
+  .timer-card { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  .timer-display {
+    background: var(--black);
+    color: var(--white);
+    font-size: clamp(40px, 6vw, 68px);
+    font-weight: 800;
+    padding: 14px 34px;
+    border-radius: 10px;
+    letter-spacing: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .timer-controls { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button.timer-btn {
+    background: var(--red);
+    color: var(--white);
+    border: none;
+    padding: 12px 22px;
+    border-radius: 8px;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: pointer;
+    font-family: 'Montserrat', sans-serif;
+  }
+  button.timer-btn.secondary { background: var(--black); }
+  .timer-settings { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+  .timer-settings input[type="number"] { width: 70px; }
+
+  button.action-btn {
+    background: var(--red);
+    color: var(--white);
+    border: none;
+    padding: 9px 18px;
+    border-radius: 6px;
+    font-weight: 700;
+    cursor: pointer;
+    font-family: 'Montserrat', sans-serif;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  button.small-btn {
+    background: none;
+    border: none;
+    color: var(--red);
+    cursor: pointer;
+    font-weight: 700;
+    font-size: 13px;
+    font-family: 'Montserrat', sans-serif;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 9px 8px; border-bottom: 1px solid var(--gray-border); }
+  th { font-weight: 700; background: var(--gray-bg); }
+  tr:hover td { background: #fafafa; }
+  .rank-1 { color: var(--red); font-weight: 800; }
+  .empty-msg { color: #888; font-style: italic; padding: 12px 0; }
+  input.score-input { width: 90px; text-align: center; }
+  .event-picker { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+
+<div id="loginScreen">
+  <h2>VEX IQ Leaderboard<br><span style="color:var(--red)">Admin Login</span></h2>
+  <input type="email" id="emailInput" placeholder="Email">
+  <input type="password" id="passwordInput" placeholder="Password">
+  <button onclick="doSignIn()">Sign In</button>
+  <div id="loginError"></div>
+</div>
+
+<header id="appHeader" style="display:none;">
+  <h1>Run <span>Live Event</span></h1>
+  <div style="display:flex; gap:10px; align-items:center;">
+    <a class="nav-link" href="vex-leaderboard-admin.html">← Back to Admin</a>
+    <button id="signOutBtn" onclick="doSignOut()">Sign Out</button>
+  </div>
+</header>
+
+<main id="mainApp">
+
+  <div class="card timer-card">
+    <div class="timer-display" id="timerDisplay">00:00</div>
+    <div class="timer-controls">
+      <button class="timer-btn" onclick="startTimer()">Start</button>
+      <button class="timer-btn secondary" onclick="stopTimer()">Stop</button>
+      <button class="timer-btn secondary" onclick="resetTimer()">Reset</button>
+    </div>
+    <div class="timer-settings">
+      <label><input type="radio" name="timerMode" value="up" checked onchange="setTimerMode('up')"> Count Up</label>
+      <label><input type="radio" name="timerMode" value="down" onchange="setTimerMode('down')"> Count Down</label>
+      <span id="countDownSetting" style="display:none;">
+        from <input type="number" id="countDownMinutes" value="1" min="0"> min
+        <input type="number" id="countDownSeconds" value="0" min="0" max="59"> sec
+      </span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Event</h3>
+    <div class="form-row event-picker">
+      <select id="liveEventSelect" onchange="onEventChange()"></select>
+      <span id="eventTypeLabel" style="font-size:13px; color:#888;"></span>
+    </div>
+  </div>
+
+  <!-- HEAD TO HEAD MODE -->
+  <div class="card" id="headToHeadPanel" style="display:none;">
+    <h3>Log Match</h3>
+    <div class="form-row">
+      <select id="liveTeamA"></select>
+      <input type="number" id="liveScoreA" class="score-input" placeholder="Score">
+      <span style="font-weight:700;">vs</span>
+      <input type="number" id="liveScoreB" class="score-input" placeholder="Score">
+      <select id="liveTeamB"></select>
+      <button class="action-btn" onclick="addLiveMatch()">Save Match</button>
+    </div>
+    <h3 style="margin-top:22px;">Live Standings — This Event</h3>
+    <table>
+      <thead><tr><th>#</th><th>Team</th><th>W</th><th>L</th><th>T</th><th>Diff</th></tr></thead>
+      <tbody id="h2hStandingsBody"></tbody>
+    </table>
+    <div id="h2hEmpty" class="empty-msg" style="display:none;">No matches logged yet for this event.</div>
+  </div>
+
+  <!-- SKILLS MODE -->
+  <div class="card" id="skillsPanel" style="display:none;">
+    <h3>Live Skills Scoreboard — enter scores as teams run, it auto-ranks</h3>
+    <table>
+      <thead><tr><th>Rank</th><th>Team</th><th>Score 1</th><th>Score 2</th><th>Total</th></tr></thead>
+      <tbody id="skillsLiveBody"></tbody>
+    </table>
+    <div id="skillsLiveEmpty" class="empty-msg" style="display:none;">No teams yet.</div>
+  </div>
+
+</main>
+
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyBsja7ruNaLkTDTxyga9qd9TZG2Zz5AjHA",
+  authDomain: "bathroom-check-out.firebaseapp.com",
+  databaseURL: "https://bathroom-check-out-default-rtdb.firebaseio.com",
+  projectId: "bathroom-check-out",
+  storageBucket: "bathroom-check-out.firebasestorage.app",
+  messagingSenderId: "385219454253",
+  appId: "1:385219454253:web:970acbfe28672f73c45fa4"
+};
+
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth();
+const db = firebase.database();
+const ROOT = "vexLeaderboard";
+
+let teams = {};
+let events = {};
+let matches = {};
+let skillsRuns = {};
+
+// ---------- AUTH ----------
+function doSignIn() {
+  const email = document.getElementById('emailInput').value.trim();
+  const pw = document.getElementById('passwordInput').value;
+  document.getElementById('loginError').textContent = '';
+  auth.signInWithEmailAndPassword(email, pw)
+    .catch(err => { document.getElementById('loginError').textContent = err.message; });
+}
+function doSignOut() { auth.signOut(); }
+
+auth.onAuthStateChanged(user => {
+  if (user) {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('appHeader').style.display = 'flex';
+    document.getElementById('mainApp').style.display = 'block';
+    attachListeners();
+  } else {
+    document.getElementById('loginScreen').style.display = 'block';
+    document.getElementById('appHeader').style.display = 'none';
+    document.getElementById('mainApp').style.display = 'none';
+  }
+});
+
+function attachListeners() {
+  db.ref(`${ROOT}/teams`).on('value', snap => { teams = snap.val() || {}; renderTeamSelects(); renderCurrentEventView(); });
+  db.ref(`${ROOT}/events`).on('value', snap => { events = snap.val() || {}; renderEventSelect(); });
+  db.ref(`${ROOT}/matches`).on('value', snap => { matches = snap.val() || {}; renderCurrentEventView(); });
+  db.ref(`${ROOT}/skillsRuns`).on('value', snap => { skillsRuns = snap.val() || {}; renderCurrentEventView(); });
+}
+
+function eventType(id) {
+  return (events[id] && events[id].type) || 'headToHead';
+}
+
+// ---------- EVENT SELECT ----------
+function renderEventSelect() {
+  const sel = document.getElementById('liveEventSelect');
+  const prev = sel.value;
+  const ids = Object.keys(events).sort((a, b) => (events[b].date || '').localeCompare(events[a].date || ''));
+  sel.innerHTML = '<option value="">Select event…</option>' +
+    ids.map(id => `<option value="${id}">${escapeHtml(events[id].name)} (${eventType(id) === 'skills' ? 'Skills' : 'H2H'})</option>`).join('');
+  if (prev && events[prev]) sel.value = prev;
+  onEventChange();
+}
+function onEventChange() {
+  const id = document.getElementById('liveEventSelect').value;
+  const label = document.getElementById('eventTypeLabel');
+  const h2hPanel = document.getElementById('headToHeadPanel');
+  const skillsPanel = document.getElementById('skillsPanel');
+
+  if (!id) {
+    label.textContent = '';
+    h2hPanel.style.display = 'none';
+    skillsPanel.style.display = 'none';
+    return;
+  }
+  const type = eventType(id);
+  label.textContent = type === 'skills' ? 'Skills Run event' : 'Head-to-Head event';
+  h2hPanel.style.display = type === 'skills' ? 'none' : 'block';
+  skillsPanel.style.display = type === 'skills' ? 'block' : 'none';
+  renderCurrentEventView();
+}
+function renderCurrentEventView() {
+  const id = document.getElementById('liveEventSelect').value;
+  if (!id) return;
+  if (eventType(id) === 'skills') renderSkillsLive(id);
+  else renderH2HLive(id);
+}
+
+// ---------- TEAM SELECTS ----------
+function renderTeamSelects() {
+  const opts = Object.keys(teams)
+    .sort((a, b) => (teams[a].name || '').localeCompare(teams[b].name || ''))
+    .map(id => `<option value="${id}">${escapeHtml(teams[id].name)}</option>`)
+    .join('');
+  document.getElementById('liveTeamA').innerHTML = '<option value="">Team A</option>' + opts;
+  document.getElementById('liveTeamB').innerHTML = '<option value="">Team B</option>' + opts;
+}
+
+// ---------- HEAD TO HEAD ----------
+function addLiveMatch() {
+  const eventId = document.getElementById('liveEventSelect').value;
+  const teamAId = document.getElementById('liveTeamA').value;
+  const teamBId = document.getElementById('liveTeamB').value;
+  const scoreA = parseInt(document.getElementById('liveScoreA').value, 10);
+  const scoreB = parseInt(document.getElementById('liveScoreB').value, 10);
+
+  if (!eventId) return alert('Select an event.');
+  if (!teamAId || !teamBId) return alert('Select both teams.');
+  if (teamAId === teamBId) return alert('Team A and Team B must be different.');
+  if (isNaN(scoreA) || isNaN(scoreB)) return alert('Enter both scores.');
+
+  db.ref(`${ROOT}/matches`).push({ eventId, teamAId, teamBId, scoreA, scoreB, createdAt: Date.now() });
+
+  document.getElementById('liveScoreA').value = '';
+  document.getElementById('liveScoreB').value = '';
+}
+function renderH2HLive(eventId) {
+  const stats = {};
+  Object.keys(teams).forEach(id => { stats[id] = { id, name: teams[id].name, w: 0, l: 0, t: 0, pf: 0, pa: 0 }; });
+  Object.values(matches).forEach(m => {
+    if (m.eventId !== eventId) return;
+    if (!stats[m.teamAId] || !stats[m.teamBId]) return;
+    const a = stats[m.teamAId], b = stats[m.teamBId];
+    a.pf += m.scoreA; a.pa += m.scoreB;
+    b.pf += m.scoreB; b.pa += m.scoreA;
+    if (m.scoreA > m.scoreB) { a.w++; b.l++; }
+    else if (m.scoreA < m.scoreB) { b.w++; a.l++; }
+    else { a.t++; b.t++; }
+  });
+  const arr = Object.values(stats).sort((x, y) => {
+    const px = x.w * 2 + x.t, py = y.w * 2 + y.t;
+    if (py !== px) return py - px;
+    return (y.pf - y.pa) - (x.pf - x.pa);
+  });
+  const hasAny = Object.values(matches).some(m => m.eventId === eventId);
+  document.getElementById('h2hEmpty').style.display = hasAny ? 'none' : 'block';
+  document.getElementById('h2hStandingsBody').innerHTML = arr.map((s, i) => `
+    <tr>
+      <td class="${i === 0 ? 'rank-1' : ''}">${i + 1}</td>
+      <td class="${i === 0 ? 'rank-1' : ''}">${escapeHtml(s.name)}</td>
+      <td>${s.w}</td><td>${s.l}</td><td>${s.t}</td>
+      <td>${s.pf - s.pa > 0 ? '+' : ''}${s.pf - s.pa}</td>
+    </tr>
+  `).join('');
+}
+
+// ---------- SKILLS LIVE ----------
+function renderSkillsLive(eventId) {
+  const teamIds = Object.keys(teams).sort((a, b) => (teams[a].name || '').localeCompare(teams[b].name || ''));
+  document.getElementById('skillsLiveEmpty').style.display = teamIds.length ? 'none' : 'block';
+
+  const rows = teamIds.map(teamId => {
+    const key = `${eventId}__${teamId}`;
+    const run = skillsRuns[key] || { score1: '', score2: '', total: 0 };
+    return { teamId, key, ...run };
+  });
+  rows.sort((a, b) => (b.total || 0) - (a.total || 0));
+
+  document.getElementById('skillsLiveBody').innerHTML = rows.map((r, i) => `
+    <tr>
+      <td class="${i === 0 && r.total ? 'rank-1' : ''}">${i + 1}</td>
+      <td class="${i === 0 && r.total ? 'rank-1' : ''}">${escapeHtml(teams[r.teamId].name)}</td>
+      <td><input type="number" class="score-input" value="${r.score1 !== '' ? r.score1 : ''}"
+            onchange="saveSkillsScore('${eventId}','${r.teamId}', this.value, null)"></td>
+      <td><input type="number" class="score-input" value="${r.score2 !== '' ? r.score2 : ''}"
+            onchange="saveSkillsScore('${eventId}','${r.teamId}', null, this.value)"></td>
+      <td><strong>${r.total || 0}</strong></td>
+    </tr>
+  `).join('');
+}
+function saveSkillsScore(eventId, teamId, score1Val, score2Val) {
+  const key = `${eventId}__${teamId}`;
+  const existing = skillsRuns[key] || { score1: 0, score2: 0 };
+  const score1 = score1Val !== null ? (parseInt(score1Val, 10) || 0) : (existing.score1 || 0);
+  const score2 = score2Val !== null ? (parseInt(score2Val, 10) || 0) : (existing.score2 || 0);
+  const total = score1 + score2;
+  db.ref(`${ROOT}/skillsRuns/${key}`).set({ eventId, teamId, score1, score2, total, updatedAt: Date.now() });
+}
+
+// ---------- TIMER ----------
+let timerInterval = null;
+let timerSeconds = 0;
+let timerMode = 'up';
+let timerRunning = false;
+
+function setTimerMode(mode) {
+  timerMode = mode;
+  document.getElementById('countDownSetting').style.display = mode === 'down' ? 'inline' : 'none';
+  resetTimer();
+}
+function startTimer() {
+  if (timerRunning) return;
+  if (timerMode === 'down' && timerSeconds === 0) {
+    const min = parseInt(document.getElementById('countDownMinutes').value, 10) || 0;
+    const sec = parseInt(document.getElementById('countDownSeconds').value, 10) || 0;
+    timerSeconds = min * 60 + sec;
+  }
+  timerRunning = true;
+  timerInterval = setInterval(() => {
+    if (timerMode === 'up') {
+      timerSeconds++;
+    } else {
+      timerSeconds--;
+      if (timerSeconds <= 0) {
+        timerSeconds = 0;
+        stopTimer();
+      }
+    }
+    renderTimer();
+  }, 1000);
+}
+function stopTimer() {
+  timerRunning = false;
+  clearInterval(timerInterval);
+}
+function resetTimer() {
+  stopTimer();
+  timerSeconds = 0;
+  renderTimer();
+}
+function renderTimer() {
+  const m = Math.floor(timerSeconds / 60);
+  const s = timerSeconds % 60;
+  document.getElementById('timerDisplay').textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+renderTimer();
+
+function escapeHtml(str) {
+  if (str === undefined || str === null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+</script>
+</body>
+</html>
