@@ -237,7 +237,7 @@
 
   <!-- HEAD TO HEAD MODE -->
   <div class="card" id="headToHeadPanel" style="display:none;">
-    <h3>Match Schedule</h3>
+    <h3>1v1 Match Schedule</h3>
     <div id="scheduleTeamCheckboxes" class="checkbox-list"></div>
     <div class="form-row">
       <button class="action-btn" onclick="generateHeadToHeadSchedule()">Generate Schedule (each team plays 2)</button>
@@ -248,6 +248,24 @@
       <tbody id="scheduleBody"></tbody>
     </table>
     <div id="scheduleEmpty" class="empty-msg">No schedule generated yet for this event.</div>
+  </div>
+
+  <div class="card" id="allianceSchedulePanel" style="display:none;">
+    <h3>2v2 Alliance Match Schedule</h3>
+    <div id="allianceScheduleTeamCheckboxes" class="checkbox-list"></div>
+    <div class="form-row">
+      <label style="background:var(--gray-bg); padding:6px 10px; border-radius:6px; font-size:13px;">
+        Matches per team: <input type="number" id="allianceMatchesPerTeam" value="2" min="1" style="width:50px; margin-left:6px;">
+      </label>
+      <button class="action-btn" onclick="generateAllianceScheduleUI()">Generate Alliance Schedule</button>
+      <button class="small-btn" onclick="clearAllianceSchedule()">Clear Schedule</button>
+    </div>
+    <div style="font-size:12px; color:#888; margin-bottom:10px;">Rotates partners and opponents as much as the numbers allow. A few teams may get one bonus match if the team count doesn't divide evenly into groups of four.</div>
+    <table>
+      <thead><tr><th>Match #</th><th>Green Alliance</th><th>Blue Alliance</th><th>Status</th><th></th></tr></thead>
+      <tbody id="allianceScheduleBody"></tbody>
+    </table>
+    <div id="allianceScheduleEmpty" class="empty-msg">No alliance schedule generated yet for this event.</div>
   </div>
 
   <div class="card" id="headToHeadMatchPanel" style="display:none;">
@@ -327,6 +345,7 @@ let events = {};
 let matches = {};
 let skillsRuns = {};
 let schedules = {};
+let allianceSchedules = {};
 
 // ---------- AUTH ----------
 function doSignIn() {
@@ -352,11 +371,12 @@ auth.onAuthStateChanged(user => {
 });
 
 function attachListeners() {
-  db.ref(`${ROOT}/teams`).on('value', snap => { teams = snap.val() || {}; renderTeamSelects(); renderScheduleTeamCheckboxes(); renderCurrentEventView(); });
+  db.ref(`${ROOT}/teams`).on('value', snap => { teams = snap.val() || {}; renderTeamSelects(); renderScheduleTeamCheckboxes(); renderAllianceScheduleTeamCheckboxes(); renderCurrentEventView(); });
   db.ref(`${ROOT}/events`).on('value', snap => { events = snap.val() || {}; renderEventSelect(); });
   db.ref(`${ROOT}/matches`).on('value', snap => { matches = snap.val() || {}; renderCurrentEventView(); });
   db.ref(`${ROOT}/skillsRuns`).on('value', snap => { skillsRuns = snap.val() || {}; renderCurrentEventView(); });
   db.ref(`${ROOT}/schedules`).on('value', snap => { schedules = snap.val() || {}; renderCurrentEventView(); });
+  db.ref(`${ROOT}/allianceSchedules`).on('value', snap => { allianceSchedules = snap.val() || {}; renderCurrentEventView(); });
 }
 
 function eventType(id) {
@@ -377,12 +397,14 @@ function onEventChange() {
   const id = document.getElementById('liveEventSelect').value;
   const label = document.getElementById('eventTypeLabel');
   const h2hPanel = document.getElementById('headToHeadPanel');
+  const allianceSchedulePanel = document.getElementById('allianceSchedulePanel');
   const h2hMatchPanel = document.getElementById('headToHeadMatchPanel');
   const skillsPanel = document.getElementById('skillsPanel');
 
   if (!id) {
     label.textContent = '';
     h2hPanel.style.display = 'none';
+    allianceSchedulePanel.style.display = 'none';
     h2hMatchPanel.style.display = 'none';
     skillsPanel.style.display = 'none';
     return;
@@ -390,6 +412,7 @@ function onEventChange() {
   const type = eventType(id);
   label.textContent = type === 'skills' ? 'Skills Run event' : 'Head-to-Head event';
   h2hPanel.style.display = type === 'skills' ? 'none' : 'block';
+  allianceSchedulePanel.style.display = type === 'skills' ? 'none' : 'block';
   h2hMatchPanel.style.display = type === 'skills' ? 'none' : 'block';
   skillsPanel.style.display = type === 'skills' ? 'block' : 'none';
   renderCurrentEventView();
@@ -402,6 +425,7 @@ function renderCurrentEventView() {
   } else {
     renderH2HLive(id);
     renderSchedule(id);
+    renderAllianceSchedule(id);
   }
 }
 
@@ -504,6 +528,182 @@ function markScheduleDone(eventId, teamAId, teamBId) {
   });
 }
 
+// ---------- ALLIANCE (2v2) SCHEDULE GENERATION ----------
+function renderAllianceScheduleTeamCheckboxes() {
+  const container = document.getElementById('allianceScheduleTeamCheckboxes');
+  const ids = Object.keys(teams).sort((a, b) => (teams[a].name || '').localeCompare(teams[b].name || ''));
+  container.innerHTML = ids.map(id =>
+    `<label><input type="checkbox" class="alliance-schedule-team-checkbox" value="${id}" checked> ${escapeHtml(teams[id].name)}</label>`
+  ).join('');
+}
+
+function pairKey(a, b) { return [a, b].sort().join('|'); }
+
+function combinationsOf4(arr) {
+  const result = [];
+  const n = arr.length;
+  for (let a = 0; a < n; a++)
+    for (let b = a + 1; b < n; b++)
+      for (let c = b + 1; c < n; c++)
+        for (let d = c + 1; d < n; d++)
+          result.push([arr[a], arr[b], arr[c], arr[d]]);
+  return result;
+}
+
+// Builds a sequence of 2v2 alliance matches from a team list, aiming for each team
+// to play at least `matchesPerTeam` times while rotating partners and opponents as
+// much as the numbers allow. Best-effort heuristic, not a perfect balanced design.
+function buildAllianceSchedule(teamIds, matchesPerTeam) {
+  const remaining = {};
+  const totalPlayed = {};
+  teamIds.forEach(id => { remaining[id] = matchesPerTeam; totalPlayed[id] = 0; });
+
+  const partnerCount = {};
+  const opponentCount = {};
+  const rounds = [];
+  let lastRoundTeams = new Set();
+  let safety = 0;
+
+  while (Object.values(remaining).some(v => v > 0) && safety < 500) {
+    safety++;
+    let candidates = teamIds.filter(id => remaining[id] > 0);
+
+    if (candidates.length < 4) {
+      // Not enough teams still "needing" a match to fill a foursome — borrow
+      // whichever already-satisfied teams have played the fewest total matches,
+      // so the bonus appearance rotates fairly rather than always hitting the same teams.
+      const fillers = teamIds
+        .filter(id => !candidates.includes(id))
+        .sort((a, b) => totalPlayed[a] - totalPlayed[b]);
+      for (const f of fillers) {
+        if (candidates.length >= 4) break;
+        candidates.push(f);
+      }
+    }
+    if (candidates.length < 4) break; // fewer than 4 teams total, can't schedule alliance play
+
+    let pool = candidates.filter(id => !lastRoundTeams.has(id));
+    if (pool.length < 4) pool = candidates; // allow back-to-back only if unavoidable
+
+    pool.sort((a, b) => remaining[b] - remaining[a]);
+    const searchPool = pool.slice(0, Math.min(pool.length, 8));
+
+    let best = null, bestScore = Infinity;
+    combinationsOf4(searchPool).forEach(four => {
+      const [t1, t2, t3, t4] = four;
+      const splits = [
+        [[t1, t2], [t3, t4]],
+        [[t1, t3], [t2, t4]],
+        [[t1, t4], [t2, t3]]
+      ];
+      splits.forEach(([g, b]) => {
+        const partnerScore = (partnerCount[pairKey(g[0], g[1])] || 0) + (partnerCount[pairKey(b[0], b[1])] || 0);
+        const opponentScore = g.reduce((s, gid) => s + b.reduce((s2, bid) => s2 + (opponentCount[pairKey(gid, bid)] || 0), 0), 0);
+        const score = partnerScore * 3 + opponentScore;
+        if (score < bestScore) { bestScore = score; best = { four, split: [g, b] }; }
+      });
+    });
+
+    if (!best) break;
+    const [green, blue] = best.split;
+
+    rounds.push({ teamAIds: green, teamBIds: blue, done: false });
+
+    partnerCount[pairKey(green[0], green[1])] = (partnerCount[pairKey(green[0], green[1])] || 0) + 1;
+    partnerCount[pairKey(blue[0], blue[1])] = (partnerCount[pairKey(blue[0], blue[1])] || 0) + 1;
+    green.forEach(g => blue.forEach(b => {
+      const k = pairKey(g, b);
+      opponentCount[k] = (opponentCount[k] || 0) + 1;
+    }));
+
+    best.four.forEach(id => {
+      remaining[id] = Math.max(0, remaining[id] - 1);
+      totalPlayed[id]++;
+    });
+    lastRoundTeams = new Set(best.four);
+  }
+
+  return rounds;
+}
+
+function generateAllianceScheduleUI() {
+  const eventId = document.getElementById('liveEventSelect').value;
+  if (!eventId) return alert('Select an event first.');
+
+  const checked = Array.from(document.querySelectorAll('.alliance-schedule-team-checkbox:checked')).map(cb => cb.value);
+  if (checked.length < 4) return alert('Select at least 4 teams to generate a 2v2 alliance schedule.');
+
+  const matchesPerTeam = Math.max(1, parseInt(document.getElementById('allianceMatchesPerTeam').value, 10) || 2);
+
+  if (allianceSchedules[eventId] && allianceSchedules[eventId].rounds && allianceSchedules[eventId].rounds.length) {
+    if (!confirm('This event already has an alliance schedule. Generating a new one replaces it (any match results already logged stay logged). Continue?')) return;
+  }
+
+  const rounds = buildAllianceSchedule(checked, matchesPerTeam);
+  db.ref(`${ROOT}/allianceSchedules/${eventId}`).set({ rounds, createdAt: Date.now() });
+}
+
+function clearAllianceSchedule() {
+  const eventId = document.getElementById('liveEventSelect').value;
+  if (!eventId) return;
+  if (!confirm('Clear this event\'s alliance schedule? Match results already logged are not affected.')) return;
+  db.ref(`${ROOT}/allianceSchedules/${eventId}`).remove();
+}
+
+function renderAllianceSchedule(eventId) {
+  const sched = allianceSchedules[eventId];
+  const body = document.getElementById('allianceScheduleBody');
+  if (!sched || !sched.rounds || !sched.rounds.length) {
+    document.getElementById('allianceScheduleEmpty').style.display = 'block';
+    body.innerHTML = '';
+    return;
+  }
+  document.getElementById('allianceScheduleEmpty').style.display = 'none';
+  const teamNames = idsArr => idsArr.map(id => teams[id] ? teams[id].name : '(deleted team)').join(' + ');
+  body.innerHTML = sched.rounds.map((r, i) => `
+    <tr class="${r.done ? 'done-row' : ''}">
+      <td>${i + 1}</td>
+      <td>${escapeHtml(teamNames(r.teamAIds))}</td>
+      <td>${escapeHtml(teamNames(r.teamBIds))}</td>
+      <td>${r.done ? '<span class="status-done">✓ Played</span>' : '<span class="status-pending">Pending</span>'}</td>
+      <td>${r.done ? '' : `<button class="small-btn" onclick="loadAllianceScheduleMatch('${eventId}', ${i})">Load</button>`}</td>
+    </tr>
+  `).join('');
+}
+
+function loadAllianceScheduleMatch(eventId, idx) {
+  const r = allianceSchedules[eventId].rounds[idx];
+  document.querySelector('input[name="matchFormat"][value="2v2"]').checked = true;
+  setMatchFormat('2v2');
+  document.getElementById('greenTeam1').value = r.teamAIds[0];
+  document.getElementById('greenTeam2').value = r.teamAIds[1];
+  document.getElementById('blueTeam1').value = r.teamBIds[0];
+  document.getElementById('blueTeam2').value = r.teamBIds[1];
+  document.getElementById('greenScore').value = '';
+  document.getElementById('blueScore').value = '';
+  document.getElementById('greenScore').focus();
+}
+
+function idsMatchAsSet(a, b) {
+  if (a.length !== b.length) return false;
+  const sa = [...a].sort().join(',');
+  const sb = [...b].sort().join(',');
+  return sa === sb;
+}
+
+function markAllianceScheduleDone(eventId, teamAIds, teamBIds) {
+  const sched = allianceSchedules[eventId];
+  if (!sched || !sched.rounds) return;
+  const idx = sched.rounds.findIndex(r => !r.done &&
+    ((idsMatchAsSet(r.teamAIds, teamAIds) && idsMatchAsSet(r.teamBIds, teamBIds)) ||
+     (idsMatchAsSet(r.teamAIds, teamBIds) && idsMatchAsSet(r.teamBIds, teamAIds))));
+  if (idx === -1) return;
+  db.ref(`${ROOT}/allianceSchedules/${eventId}/rounds/${idx}/done`).set(true).then(() => {
+    const nextIdx = sched.rounds.findIndex((r, i) => i > idx && !r.done);
+    if (nextIdx !== -1) setTimeout(() => loadAllianceScheduleMatch(eventId, nextIdx), 250);
+  });
+}
+
 // ---------- TEAM SELECTS ----------
 function renderTeamSelects() {
   const opts = Object.keys(teams)
@@ -567,6 +767,7 @@ function addAllianceMatch() {
     scoreB: blueScore,
     createdAt: Date.now()
   }).then(() => {
+    markAllianceScheduleDone(eventId, [g1, g2], [b1, b2]);
     document.getElementById('greenScore').value = '';
     document.getElementById('blueScore').value = '';
   });
